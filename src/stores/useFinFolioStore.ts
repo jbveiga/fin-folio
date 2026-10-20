@@ -112,6 +112,7 @@ interface FinFolioState {
   rekeyVault: (newPassphrase: string | null) => Promise<void>;
   run100kBenchmark: (count?: number) => Promise<void>;
   exportLedger: (format: "csv" | "json") => Promise<string>;
+  resetPreviewVault: () => Promise<void>;
 }
 
 export const useFinFolioStore = create<FinFolioState>((set, get) => ({
@@ -507,5 +508,13 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
 
   exportLedger: async (format) => {
     return ipc.exportData(format, get().selectedAccountIds);
+  },
+
+  resetPreviewVault: async () => {
+    await ipc.resetPreviewVault();
+    await get().initializeWorkspace();
+    get().setStatusBanner(
+      "Preview vault successfully reset to pristine default dataset."
+    );
   },
 }));

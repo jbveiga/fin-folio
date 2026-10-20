@@ -481,9 +481,13 @@ const defaultFallbackDb: FallbackDatabase = {
   ],
 };
 
+function cloneDefaultFallbackDb(): FallbackDatabase {
+  return JSON.parse(JSON.stringify(defaultFallbackDb)) as FallbackDatabase;
+}
+
 function loadOrInitializeFallbackDb(): FallbackDatabase {
   if (typeof window === "undefined" || isTauriRuntime()) {
-    return defaultFallbackDb;
+    return cloneDefaultFallbackDb();
   }
   try {
     const raw = window.localStorage.getItem(PREVIEW_VAULT_STORAGE_KEY);
@@ -499,14 +503,16 @@ function loadOrInitializeFallbackDb(): FallbackDatabase {
         return parsed;
       }
     }
+    const fresh = cloneDefaultFallbackDb();
     window.localStorage.setItem(
       PREVIEW_VAULT_STORAGE_KEY,
-      JSON.stringify(defaultFallbackDb)
+      JSON.stringify(fresh)
     );
+    return fresh;
   } catch {
     // Fallback to in-memory seed if localStorage is restricted
   }
-  return defaultFallbackDb;
+  return cloneDefaultFallbackDb();
 }
 
 function persistFallbackDb(): void {
@@ -775,6 +781,7 @@ export const ipc = {
 
     const accSet = new Set(params.accountIds);
     const catMap = new Map(fallbackDb.categories.map((c) => [c.id, c]));
+    const entMap = new Map(fallbackDb.entities.map((e) => [e.id, e]));
     const q = (params.search || "").trim().toUpperCase();
 
     const filtered = fallbackDb.transactions
@@ -783,12 +790,22 @@ export const ipc = {
         if (!accSet.has(t.account_id)) return false;
         if (params.startDate && t.date_posted < params.startDate) return false;
         if (params.endDate && t.date_posted > params.endDate) return false;
-        if (
-          q &&
-          !t.clean_description.toUpperCase().includes(q) &&
-          !t.raw_bank_string.toUpperCase().includes(q)
-        ) {
-          return false;
+        if (q) {
+          const descMatch =
+            t.clean_description.toUpperCase().includes(q) ||
+            t.raw_bank_string.toUpperCase().includes(q);
+          const entName = t.entity_id
+            ? entMap.get(t.entity_id)?.normalized_name.toUpperCase() || ""
+            : "";
+          const entMatch = entName.includes(q);
+          const catMatch = item.splits.some((sp) => {
+            if (!sp.category_id) return false;
+            const c = catMap.get(sp.category_id);
+            return c ? c.name.toUpperCase().includes(q) : false;
+          });
+          if (!descMatch && !entMatch && !catMatch) {
+            return false;
+          }
         }
         return true;
       })
@@ -1165,5 +1182,21 @@ export const ipc = {
       return `${tx.id};${tx.account_id};${tx.date_posted};"${tx.clean_description}";"${tx.raw_bank_string}";${tx.total_amount_cents};${tx.is_reconciled}`;
     });
     return header + lines.join("\n");
+  },
+
+  async resetPreviewVault(): Promise<void> {
+    if (!isTauriRuntime()) {
+      if (typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.removeItem(PREVIEW_VAULT_STORAGE_KEY);
+      }
+      const fresh = cloneDefaultFallbackDb();
+      fallbackDb.vaultStatus = fresh.vaultStatus;
+      fallbackDb.accounts = fresh.accounts;
+      fallbackDb.categories = fresh.categories;
+      fallbackDb.entities = fresh.entities;
+      fallbackDb.rules = fresh.rules;
+      fallbackDb.transactions = fresh.transactions;
+      persistFallbackDb();
+    }
   },
 };

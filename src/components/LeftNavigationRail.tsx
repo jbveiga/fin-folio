@@ -14,6 +14,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Zap,
+  Pencil,
 } from "lucide-react";
 import { useFinFolioStore } from "../stores/useFinFolioStore";
 import { AccountType, ActiveView } from "../types";
@@ -43,6 +44,7 @@ export const LeftNavigationRail: React.FC = () => {
   const [newAccType, setNewAccType] = useState<AccountType>("Checking");
   const [newAccAnchorStr, setNewAccAnchorStr] = useState("1000,00");
   const [newAccAnchorDate, setNewAccAnchorDate] = useState("2026-10-20");
+  const [newAccIncludeTotals, setNewAccIncludeTotals] = useState(true);
 
   const navItems: {
     id: ActiveView;
@@ -88,7 +90,7 @@ export const LeftNavigationRail: React.FC = () => {
       account_type: newAccType,
       anchor_balance_cents: parseCentsInput(newAccAnchorStr),
       anchor_date: newAccAnchorDate,
-      is_included_in_totals: true,
+      is_included_in_totals: newAccIncludeTotals,
     });
     setNewAccName("");
     setEditingAccountId(null);
@@ -280,14 +282,37 @@ export const LeftNavigationRail: React.FC = () => {
                     </div>
                   </div>
                 </div>
-                <div
-                  className={`font-mono text-[11px] tabular-nums shrink-0 ml-2 ${
-                    current_balance_cents >= 0
-                      ? "text-emerald-400"
-                      : "text-rose-400"
-                  }`}
-                >
-                  {formatCents(current_balance_cents)}
+                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                  <div
+                    className={`font-mono text-[11px] tabular-nums ${
+                      current_balance_cents >= 0
+                        ? "text-emerald-400"
+                        : "text-rose-400"
+                    }`}
+                  >
+                    {formatCents(current_balance_cents)}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingAccountId(account.id);
+                      setNewAccName(account.name);
+                      setNewAccType(account.account_type);
+                      setNewAccAnchorStr(
+                        (account.anchor_balance_cents / 100)
+                          .toFixed(2)
+                          .replace(".", ",")
+                      );
+                      setNewAccAnchorDate(account.anchor_date);
+                      setNewAccIncludeTotals(account.is_included_in_totals);
+                      setIsAddingAccount(true);
+                    }}
+                    title="Edit Account & Anchor Balance"
+                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded text-neutral-500 hover:text-white hover:bg-neutral-700 transition-opacity"
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </button>
                 </div>
               </div>
             );
@@ -360,6 +385,15 @@ export const LeftNavigationRail: React.FC = () => {
                 />
               </div>
             </div>
+            <label className="flex items-center gap-2 text-[11px] text-neutral-300 cursor-pointer pt-0.5">
+              <input
+                type="checkbox"
+                checked={newAccIncludeTotals}
+                onChange={(e) => setNewAccIncludeTotals(e.target.checked)}
+                className="rounded border-neutral-700 bg-neutral-900 text-emerald-500"
+              />
+              <span>Include in net worth totals</span>
+            </label>
             <div className="text-[10px] text-neutral-400 leading-tight bg-neutral-900/70 p-1.5 rounded border border-neutral-800">
               ℹ️ FinFolio calculates retroactive &amp; forward balances starting
               from this anchor balance.

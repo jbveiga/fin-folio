@@ -1417,7 +1417,10 @@ impl VaultEngine {
             bind_values.push(rusqlite::types::Value::Text(pattern));
             let idx = bind_values.len();
             where_clauses.push(format!(
-                "(UPPER(t.clean_description) LIKE ?{idx} OR UPPER(t.raw_bank_string) LIKE ?{idx})"
+                "(UPPER(t.clean_description) LIKE ?{idx}
+                  OR UPPER(t.raw_bank_string) LIKE ?{idx}
+                  OR EXISTS (SELECT 1 FROM entities e WHERE e.id = t.entity_id AND UPPER(e.normalized_name) LIKE ?{idx})
+                  OR EXISTS (SELECT 1 FROM transaction_splits sp JOIN categories c ON c.id = sp.category_id WHERE sp.transaction_id = t.id AND UPPER(c.name) LIKE ?{idx}))"
             ));
         }
 

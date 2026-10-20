@@ -34,10 +34,12 @@ export const VirtualizedLedgerView: React.FC = () => {
     selectedAccountIds,
     categories,
     entities,
+    searchQuery,
     activeLedgerRowIdx,
     editingTxId,
     expandedSplitTxIds,
     isNewTransactionRowOpen,
+    setSearchQuery,
     setActiveLedgerRowIdx,
     setEditingTxId,
     toggleSplitExpanded,
@@ -211,6 +213,19 @@ export const VirtualizedLedgerView: React.FC = () => {
             Showing {transactions.length.toLocaleString()} of{" "}
             {totalTransactionCount.toLocaleString()} transactions
           </span>
+          {searchQuery && (
+            <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono text-[11px] flex items-center gap-1.5">
+              <span>Filter: &ldquo;{searchQuery}&rdquo;</span>
+              <button
+                type="button"
+                onClick={() => void setSearchQuery("")}
+                title="Clear Filter"
+                className="text-emerald-400 hover:text-white"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
           <span className="text-[11px] text-neutral-400 hidden lg:inline">
             Shortcuts:{" "}
             <kbd className="px-1 py-0.5 bg-neutral-800 rounded font-mono text-[10px]">
@@ -452,7 +467,26 @@ export const VirtualizedLedgerView: React.FC = () => {
                     </div>
 
                     <div className="font-medium text-neutral-100 truncate pr-2">
-                      {entity?.normalized_name || "—"}
+                      {entity ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const nextQuery =
+                              searchQuery.toLowerCase() ===
+                              entity.normalized_name.toLowerCase()
+                                ? ""
+                                : entity.normalized_name;
+                            void setSearchQuery(nextQuery);
+                          }}
+                          title={`Click to filter by entity "${entity.normalized_name}"`}
+                          className="hover:underline hover:text-emerald-400 cursor-pointer truncate text-left"
+                        >
+                          {entity.normalized_name}
+                        </button>
+                      ) : (
+                        "—"
+                      )}
                     </div>
 
                     <div className="truncate pr-2 flex items-center gap-1.5">
@@ -467,7 +501,20 @@ export const VirtualizedLedgerView: React.FC = () => {
                           Transfer → {transferPeer.name}
                         </span>
                       ) : primaryCat ? (
-                        <span className="px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-[11px] text-neutral-200 truncate flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const nextQuery =
+                              searchQuery.toLowerCase() ===
+                              primaryCat.name.toLowerCase()
+                                ? ""
+                                : primaryCat.name;
+                            void setSearchQuery(nextQuery);
+                          }}
+                          title={`Click to filter by category "${primaryCat.name}"`}
+                          className="px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 hover:ring-1 hover:ring-emerald-400/50 cursor-pointer text-[11px] text-neutral-200 truncate flex items-center gap-1.5 transition-shadow"
+                        >
                           <span
                             className="w-2 h-2 rounded-full shrink-0"
                             style={{ backgroundColor: primaryCat.color_hex }}
@@ -476,7 +523,7 @@ export const VirtualizedLedgerView: React.FC = () => {
                             {categoryPathMap.get(primaryCat.id) ||
                               primaryCat.name}
                           </span>
-                        </span>
+                        </button>
                       ) : (
                         <span className="text-xs text-neutral-500 italic">
                           Uncategorized
