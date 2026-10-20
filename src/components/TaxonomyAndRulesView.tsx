@@ -515,8 +515,15 @@ export const TaxonomyView: React.FC = () => {
 };
 
 export const ImportRulesView: React.FC = () => {
-  const { rules, entities, categories, saveRule, deleteRule } =
-    useFinFolioStore();
+  const {
+    rules,
+    entities,
+    categories,
+    uncategorizedCount,
+    saveRule,
+    deleteRule,
+    applyRulesToTransactions,
+  } = useFinFolioStore();
 
   const [matchMode, setMatchMode] = useState<MatchMode>("Contains");
   const [pattern, setPattern] = useState("");
@@ -613,12 +620,33 @@ export const ImportRulesView: React.FC = () => {
 
       {/* Add Rule Form & Rules Table */}
       <div className="p-4 rounded-xl bg-neutral-900/60 border border-neutral-800 space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-emerald-400" />
             <h2 className="text-sm font-semibold">
               Import Rules ({rules.length})
             </h2>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void applyRulesToTransactions(true)}
+              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-sm"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>
+                ⚡ Run Rules on Uncategorized ({uncategorizedCount})
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => void applyRulesToTransactions(false)}
+              className="px-2.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 text-xs font-medium"
+              title="Re-evaluate all transactions against active rules"
+            >
+              Run on All Transactions
+            </button>
           </div>
         </div>
 

@@ -118,13 +118,18 @@ interface FinFolioState {
   excludeActiveStagingRow: () => void;
   commitAllStagedTransactions: () => Promise<void>;
 
-  // Taxonomy & Rules Actions
+  // Taxonomy, Budgets & Rules Actions
   saveCategory: (cat: Category) => Promise<void>;
+  setCategoryBudget: (
+    categoryId: string,
+    budgetCents: Cents | null
+  ) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
   saveEntity: (ent: Entity) => Promise<void>;
   deleteEntity: (id: string) => Promise<void>;
   saveRule: (rule: ImportRule) => Promise<void>;
   deleteRule: (id: string) => Promise<void>;
+  applyRulesToTransactions: (onlyUncategorized?: boolean) => Promise<number>;
 
   // Vault Security, Portability & Benchmark
   rekeyVault: (newPassphrase: string | null) => Promise<void>;
@@ -597,6 +602,17 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
     await get().refreshLedger();
   },
 
+  setCategoryBudget: async (categoryId, budgetCents) => {
+    const existing = get().categories.find((c) => c.id === categoryId);
+    if (!existing) return;
+    await ipc.saveCategory({
+      ...existing,
+      monthly_budget_cents: budgetCents,
+    });
+    const categories = await ipc.listCategories();
+    set({ categories });
+  },
+
   deleteCategory: async (id) => {
     await ipc.deleteCategory(id);
     const [categories, entities] = await Promise.all([
@@ -630,6 +646,26 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
     await ipc.deleteRule(id);
     const rules = await ipc.listRules();
     set({ rules });
+  },
+
+  applyRulesToTransactions: async (onlyUncategorized = true) => {
+    const res = await ipc.applyRulesToTransactions(onlyUncategorized);
+    const [rules, entities] = await Promise.all([
+      ipc.listRules(),
+      ipc.listEntities(),
+    ]);
+    set({ rules, entities });
+    await get().refreshLedger();
+    if (res.matchedCount > 0) {
+      get().setStatusBanner(
+        `✓ Successfully categorized ${res.matchedCount} transaction(s) using ${res.rulesAppliedCount} active rule(s).`
+      );
+    } else {
+      get().setStatusBanner(
+        "No matching uncategorized transactions found for current rules."
+      );
+    }
+    return res.matchedCount;
   },
 
   rekeyVault: async (newPassphrase) => {

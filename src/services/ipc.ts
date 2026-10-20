@@ -110,6 +110,7 @@ const defaultFallbackDb: FallbackDatabase = {
       name: "Água",
       direction: "Expense",
       color_hex: "#38bdf8",
+      monthly_budget_cents: 4_000,
     },
     {
       id: "cat_edp",
@@ -117,6 +118,7 @@ const defaultFallbackDb: FallbackDatabase = {
       name: "Eletricidade & Gás",
       direction: "Expense",
       color_hex: "#facc15",
+      monthly_budget_cents: 7_500,
     },
     {
       id: "cat_telecom",
@@ -124,6 +126,7 @@ const defaultFallbackDb: FallbackDatabase = {
       name: "Telecomunicações",
       direction: "Expense",
       color_hex: "#818cf8",
+      monthly_budget_cents: 5_000,
     },
     {
       id: "cat_alim",
@@ -131,6 +134,7 @@ const defaultFallbackDb: FallbackDatabase = {
       name: "Alimentação",
       direction: "Expense",
       color_hex: "#10b981",
+      monthly_budget_cents: null,
     },
     {
       id: "cat_super",
@@ -138,6 +142,7 @@ const defaultFallbackDb: FallbackDatabase = {
       name: "Supermercado",
       direction: "Expense",
       color_hex: "#34d399",
+      monthly_budget_cents: 40_000,
     },
     {
       id: "cat_rest",
@@ -145,6 +150,7 @@ const defaultFallbackDb: FallbackDatabase = {
       name: "Restauração & Cafés",
       direction: "Expense",
       color_hex: "#f43f5e",
+      monthly_budget_cents: 15_000,
     },
     {
       id: "cat_saude",
@@ -152,6 +158,7 @@ const defaultFallbackDb: FallbackDatabase = {
       name: "Saúde",
       direction: "Expense",
       color_hex: "#ec4899",
+      monthly_budget_cents: null,
     },
     {
       id: "cat_farm",
@@ -159,6 +166,7 @@ const defaultFallbackDb: FallbackDatabase = {
       name: "Farmácia",
       direction: "Expense",
       color_hex: "#f472b6",
+      monthly_budget_cents: 6_000,
     },
     {
       id: "cat_pess",
@@ -166,6 +174,7 @@ const defaultFallbackDb: FallbackDatabase = {
       name: "Pessoal & Casa",
       direction: "Expense",
       color_hex: "#a855f7",
+      monthly_budget_cents: null,
     },
     {
       id: "cat_hig",
@@ -173,6 +182,7 @@ const defaultFallbackDb: FallbackDatabase = {
       name: "Higiene & Limpeza",
       direction: "Expense",
       color_hex: "#c084fc",
+      monthly_budget_cents: 4_500,
     },
     {
       id: "cat_rend",
@@ -500,6 +510,19 @@ function loadOrInitializeFallbackDb(): FallbackDatabase {
         Array.isArray(parsed.entities) &&
         Array.isArray(parsed.transactions)
       ) {
+        const defaultBudgetMap = new Map(
+          defaultFallbackDb.categories.map((c) => [
+            c.id,
+            c.monthly_budget_cents ?? null,
+          ])
+        );
+        parsed.categories = parsed.categories.map((c) => ({
+          ...c,
+          monthly_budget_cents:
+            c.monthly_budget_cents !== undefined
+              ? c.monthly_budget_cents
+              : defaultBudgetMap.get(c.id) ?? null,
+        }));
         return parsed;
       }
     }
@@ -663,9 +686,14 @@ export const ipc = {
     if (isTauriRuntime()) {
       return invoke("category_save", { category });
     }
+    const existing = fallbackDb.categories.find((c) => c.id === category.id);
     const saved: Category = {
       ...category,
       id: category.id || `cat_${Date.now()}`,
+      monthly_budget_cents:
+        category.monthly_budget_cents !== undefined
+          ? category.monthly_budget_cents
+          : existing?.monthly_budget_cents ?? null,
     };
     const idx = fallbackDb.categories.findIndex((c) => c.id === saved.id);
     if (idx >= 0) {
@@ -766,6 +794,188 @@ export const ipc = {
     }
     fallbackDb.rules = fallbackDb.rules.filter((r) => r.id !== id);
     persistFallbackDb();
+  },
+
+  async applyRulesToTransactions(onlyUncategorized: boolean): Promise<{
+    matchedCount: number;
+    rulesAppliedCount: number;
+  }> {
+    const doesRuleMatch = (
+      rule: ImportRule,
+      cleanDesc: string,
+      rawDesc: string
+    ): boolean => {
+      const pattern = rule.pattern_string.trim();
+      if (!pattern) return false;
+      const upperPattern = pattern.toUpperCase();
+      const upperClean = (cleanDesc || "").trim().toUpperCase();
+      const upperRaw = (rawDesc || "").trim().toUpperCase();
+
+      if (rule.match_mode === "Exact") {
+        return upperClean === upperPattern || upperRaw === upperPattern;
+      }
+      if (rule.match_mode === "Prefix") {
+        return (
+          upperClean.startsWith(upperPattern) ||
+          upperRaw.startsWith(upperPattern)
+        );
+      }
+      if (rule.match_mode === "Regex") {
+        try {
+          const re = new RegExp(pattern, "i");
+          return re.test(cleanDesc) || re.test(rawDesc);
+        } catch {
+          return false;
+        }
+      }
+      // Default: Contains
+      return (
+        upperClean.includes(upperPattern) || upperRaw.includes(upperPattern)
+      );
+    };
+
+    const sortedRules = [...(await this.listRules())].sort((a, b) => {
+      if (b.priority_weight !== a.priority_weight) {
+        return b.priority_weight - a.priority_weight;
+      }
+      return b.pattern_string.length - a.pattern_string.length;
+    });
+
+    if (sortedRules.length === 0) {
+      return { matchedCount: 0, rulesAppliedCount: 0 };
+    }
+
+    if (isTauriRuntime()) {
+      const [allAccs, entities] = await Promise.all([
+        this.listAccounts(),
+        this.listEntities(),
+      ]);
+      const entMap = new Map(entities.map((e) => [e.id, e]));
+      const ledger = await this.queryLedger({
+        accountIds: allAccs.map((a) => a.account.id),
+        limit: 250_000,
+      });
+
+      let matchedCount = 0;
+      const usedRuleIds = new Set<string>();
+
+      for (const item of ledger.transactions) {
+        const isUncat = item.splits.some(
+          (s) => !s.category_id && !s.transfer_peer_account_id
+        );
+        if (onlyUncategorized && !isUncat) continue;
+
+        const tx = item.transaction;
+        const matchedRule = sortedRules.find((r) => {
+          if (r.account_scope_id && r.account_scope_id !== tx.account_id) {
+            return false;
+          }
+          return doesRuleMatch(r, tx.clean_description, tx.raw_bank_string);
+        });
+
+        if (!matchedRule) continue;
+
+        const targetEntId = matchedRule.assigned_entity_id || tx.entity_id;
+        const linkedEnt = targetEntId ? entMap.get(targetEntId) : undefined;
+        const targetCatId =
+          matchedRule.assigned_category_id ||
+          linkedEnt?.default_category_id ||
+          null;
+
+        if (!targetEntId && !targetCatId) continue;
+
+        await this.saveTransaction({
+          id: tx.id,
+          account_id: tx.account_id,
+          entity_id: targetEntId,
+          entity_name: null,
+          date_posted: tx.date_posted,
+          total_amount_cents: tx.total_amount_cents,
+          raw_bank_string: tx.raw_bank_string,
+          clean_description: tx.clean_description,
+          is_reconciled: tx.is_reconciled,
+          splits: item.splits.map((s) =>
+            !s.transfer_peer_account_id && targetCatId
+              ? {
+                  category_id: targetCatId,
+                  transfer_peer_account_id: null,
+                  split_amount_cents: s.split_amount_cents,
+                  notes: s.notes,
+                }
+              : {
+                  category_id: s.category_id,
+                  transfer_peer_account_id: s.transfer_peer_account_id,
+                  split_amount_cents: s.split_amount_cents,
+                  notes: s.notes,
+                }
+          ),
+        });
+
+        matchedCount++;
+        usedRuleIds.add(matchedRule.id);
+      }
+
+      return {
+        matchedCount,
+        rulesAppliedCount: usedRuleIds.size,
+      };
+    }
+
+    const entMap = new Map(fallbackDb.entities.map((e) => [e.id, e]));
+    let matchedCount = 0;
+    const ruleHitDeltas = new Map<string, number>();
+
+    for (const item of fallbackDb.transactions) {
+      const isUncat = item.splits.some(
+        (s) => !s.category_id && !s.transfer_peer_account_id
+      );
+      if (onlyUncategorized && !isUncat) continue;
+
+      const tx = item.transaction;
+      const matchedRule = sortedRules.find((r) => {
+        if (r.account_scope_id && r.account_scope_id !== tx.account_id) {
+          return false;
+        }
+        return doesRuleMatch(r, tx.clean_description, tx.raw_bank_string);
+      });
+
+      if (!matchedRule) continue;
+
+      const targetEntId = matchedRule.assigned_entity_id || tx.entity_id;
+      const linkedEnt = targetEntId ? entMap.get(targetEntId) : undefined;
+      const targetCatId =
+        matchedRule.assigned_category_id ||
+        linkedEnt?.default_category_id ||
+        null;
+
+      if (!targetEntId && !targetCatId) continue;
+
+      tx.entity_id = targetEntId;
+      if (targetCatId) {
+        item.splits = item.splits.map((s) =>
+          !s.transfer_peer_account_id ? { ...s, category_id: targetCatId } : s
+        );
+      }
+
+      matchedCount++;
+      ruleHitDeltas.set(
+        matchedRule.id,
+        (ruleHitDeltas.get(matchedRule.id) || 0) + 1
+      );
+    }
+
+    if (matchedCount > 0) {
+      fallbackDb.rules = fallbackDb.rules.map((r) => {
+        const delta = ruleHitDeltas.get(r.id) || 0;
+        return delta > 0 ? { ...r, hit_count: r.hit_count + delta } : r;
+      });
+      persistFallbackDb();
+    }
+
+    return {
+      matchedCount,
+      rulesAppliedCount: ruleHitDeltas.size,
+    };
   },
 
   async queryLedger(params: {

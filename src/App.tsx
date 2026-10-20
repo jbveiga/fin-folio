@@ -3,6 +3,7 @@ import { LeftNavigationRail } from "./components/LeftNavigationRail";
 import { TopContextHeader } from "./components/TopContextHeader";
 import { VirtualizedLedgerView } from "./components/VirtualizedLedgerView";
 import { AnalyticsView } from "./components/AnalyticsView";
+import { BudgetsView } from "./components/BudgetsView";
 import { ImportStagingView } from "./components/ImportStagingView";
 import {
   ImportRulesView,
@@ -52,6 +53,7 @@ export function App() {
         <main className="flex-1 min-h-0 overflow-hidden">
           {activeView === "ledger" && <VirtualizedLedgerView />}
           {activeView === "analytics" && <AnalyticsView />}
+          {activeView === "budgets" && <BudgetsView />}
           {activeView === "staging" && <ImportStagingView />}
           {activeView === "taxonomy" && <TaxonomyView />}
           {activeView === "rules" && <ImportRulesView />}

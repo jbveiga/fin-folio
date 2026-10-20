@@ -3,6 +3,7 @@ export type Cents = number; // Integer minor units (cents) — strictly zero-flo
 export type ActiveView =
   | "ledger"
   | "analytics"
+  | "budgets"
   | "staging"
   | "taxonomy"
   | "rules"
@@ -50,6 +51,27 @@ export interface Category {
   name: string;
   direction: CategoryDirection;
   color_hex: string;
+  monthly_budget_cents?: Cents | null;
+}
+
+export interface CategoryBudgetProgress {
+  category: Category;
+  parentCategory: Category | null;
+  categoryPath: string;
+  budget_cents: Cents;
+  spent_cents: Cents;
+  remaining_cents: Cents;
+  percentage: number;
+  status: "safe" | "warning" | "over";
+  transaction_count: number;
+}
+
+export interface BudgetSummary {
+  total_budgeted_cents: Cents;
+  total_spent_cents: Cents;
+  remaining_safe_to_spend_cents: Cents;
+  budgeted_categories_count: number;
+  over_budget_count: number;
 }
 
 export interface Entity {

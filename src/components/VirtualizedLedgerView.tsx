@@ -11,6 +11,7 @@ import {
   Check,
   CheckCheck,
   Inbox,
+  Sparkles,
   AlertTriangle,
   Pencil,
   X,
@@ -59,6 +60,7 @@ export const VirtualizedLedgerView: React.FC = () => {
     batchAssignEntity,
     batchToggleReconciled,
     batchDeleteTransactions,
+    applyRulesToTransactions,
     setNewTransactionRowOpen,
     setStatusBanner,
   } = useFinFolioStore();
@@ -316,7 +318,7 @@ export const VirtualizedLedgerView: React.FC = () => {
 
       {/* Active Uncategorized Inbox Triage Banner */}
       {isUncategorizedFilterActive && (
-        <div className="px-3 md:px-4 py-1.5 bg-amber-500/15 border-b border-amber-500/30 flex items-center justify-between text-xs text-amber-200">
+        <div className="px-3 md:px-4 py-1.5 bg-amber-500/15 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-200">
           <div className="flex items-center gap-2">
             <Inbox className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span>
@@ -324,13 +326,23 @@ export const VirtualizedLedgerView: React.FC = () => {
               needing categorization
             </span>
           </div>
-          <button
-            type="button"
-            onClick={() => void toggleUncategorizedFilter()}
-            className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 font-medium text-[11px]"
-          >
-            Clear Filter
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void applyRulesToTransactions(true)}
+              className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-semibold text-[11px] flex items-center gap-1"
+            >
+              <Sparkles className="w-3 h-3" />
+              <span>⚡ Auto-Categorize with Rules</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => void toggleUncategorizedFilter()}
+              className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 font-medium text-[11px]"
+            >
+              Clear Filter
+            </button>
+          </div>
         </div>
       )}
 

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import {
   BookOpen,
   BarChart3,
+  Target,
   UploadCloud,
   FolderTree,
   Sparkles,
@@ -62,6 +63,11 @@ export const LeftNavigationRail: React.FC = () => {
       id: "analytics",
       label: "Analytics",
       icon: <BarChart3 className="w-4 h-4" />,
+    },
+    {
+      id: "budgets",
+      label: "Budgets",
+      icon: <Target className="w-4 h-4" />,
     },
     {
       id: "staging",

@@ -7,6 +7,7 @@ import {
   X,
   UploadCloud,
   Sparkles,
+  FolderTree,
   Wallet,
 } from "lucide-react";
 import { useFinFolioStore } from "../stores/useFinFolioStore";
@@ -328,18 +329,29 @@ export const MobileAccountDrawer: React.FC<MobileAccountDrawerProps> = ({
             </form>
           )}
 
-          {/* Secondary Mobile Navigation Shortcuts (Import & Rules) */}
-          <div className="pt-2 border-t border-neutral-800 grid grid-cols-2 gap-2">
+          {/* Secondary Mobile Navigation Shortcuts (Categories, Import & Rules) */}
+          <div className="pt-2 border-t border-neutral-800 grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveView("taxonomy");
+                onClose();
+              }}
+              className="py-2.5 px-2 rounded-xl bg-neutral-800/80 border border-neutral-700 text-[11px] font-medium text-neutral-200 flex items-center justify-center gap-1"
+            >
+              <FolderTree className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Categories</span>
+            </button>
             <button
               type="button"
               onClick={() => {
                 setActiveView("staging");
                 onClose();
               }}
-              className="py-2.5 px-3 rounded-xl bg-neutral-800/80 border border-neutral-700 text-xs font-medium text-neutral-200 flex items-center justify-center gap-1.5"
+              className="py-2.5 px-2 rounded-xl bg-neutral-800/80 border border-neutral-700 text-[11px] font-medium text-neutral-200 flex items-center justify-center gap-1"
             >
               <UploadCloud className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Import Statement</span>
+              <span>Import</span>
             </button>
             <button
               type="button"
@@ -347,10 +359,10 @@ export const MobileAccountDrawer: React.FC<MobileAccountDrawerProps> = ({
                 setActiveView("rules");
                 onClose();
               }}
-              className="py-2.5 px-3 rounded-xl bg-neutral-800/80 border border-neutral-700 text-xs font-medium text-neutral-200 flex items-center justify-center gap-1.5"
+              className="py-2.5 px-2 rounded-xl bg-neutral-800/80 border border-neutral-700 text-[11px] font-medium text-neutral-200 flex items-center justify-center gap-1"
             >
               <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Import Rules</span>
+              <span>Rules</span>
             </button>
           </div>
         </div>

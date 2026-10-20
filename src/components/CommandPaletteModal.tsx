@@ -12,6 +12,7 @@ export const CommandPaletteModal: React.FC = () => {
     selectAllAccounts,
     setImportModalOpen,
     setNewTransactionRowOpen,
+    applyRulesToTransactions,
     run100kBenchmark,
   } = useFinFolioStore();
 
@@ -29,6 +30,16 @@ export const CommandPaletteModal: React.FC = () => {
       label: "Open Cash Flow & Category Analytics Dashboard",
       shortcut: "Analytics",
       run: () => setActiveView("analytics"),
+    },
+    {
+      label: "Open Monthly Category Budgets & Pacing",
+      shortcut: "Budgets",
+      run: () => setActiveView("budgets"),
+    },
+    {
+      label: "⚡ Run Auto-Categorization Rules on Uncategorized Transactions",
+      shortcut: "Rules",
+      run: () => void applyRulesToTransactions(true),
     },
     {
       label: "Open Statement Import Staging Grid",

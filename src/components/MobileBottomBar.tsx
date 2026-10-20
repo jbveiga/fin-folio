@@ -2,9 +2,9 @@ import React from "react";
 import {
   BookOpen,
   BarChart3,
+  Target,
   Wallet,
   Plus,
-  FolderTree,
   Settings,
 } from "lucide-react";
 import { useFinFolioStore } from "../stores/useFinFolioStore";
@@ -61,7 +61,33 @@ export const MobileBottomBar: React.FC<MobileBottomBarProps> = ({
           <span>Analytics</span>
         </button>
 
-        {/* Slot 3: Accounts Drawer Trigger */}
+        {/* Slot 3: Budgets */}
+        <button
+          type="button"
+          onClick={() => handleNav("budgets")}
+          className={`flex flex-col items-center justify-center h-full gap-0.5 text-[10px] font-medium transition-colors ${
+            activeView === "budgets" && !isAccountDrawerOpen
+              ? "text-emerald-400"
+              : "text-neutral-400 active:text-neutral-200"
+          }`}
+        >
+          <Target className="w-4 h-4" />
+          <span>Budgets</span>
+        </button>
+
+        {/* Slot 4: Quick Add FAB (+) */}
+        <div className="flex flex-col items-center justify-center h-full">
+          <button
+            type="button"
+            onClick={onOpenQuickAdd}
+            aria-label="Quick Add Transaction"
+            className="w-11 h-11 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold rounded-full flex items-center justify-center -translate-y-2 shadow-lg shadow-emerald-500/25 active:scale-95 transition-transform"
+          >
+            <Plus className="w-5 h-5 stroke-[2.5]" />
+          </button>
+        </div>
+
+        {/* Slot 5: Accounts Drawer Trigger */}
         <button
           type="button"
           onClick={onOpenAccounts}
@@ -82,38 +108,13 @@ export const MobileBottomBar: React.FC<MobileBottomBarProps> = ({
           <span>Accounts</span>
         </button>
 
-        {/* Slot 4: Quick Add FAB (+) */}
-        <div className="flex flex-col items-center justify-center h-full">
-          <button
-            type="button"
-            onClick={onOpenQuickAdd}
-            aria-label="Quick Add Transaction"
-            className="w-11 h-11 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold rounded-full flex items-center justify-center -translate-y-2 shadow-lg shadow-emerald-500/25 active:scale-95 transition-transform"
-          >
-            <Plus className="w-5 h-5 stroke-[2.5]" />
-          </button>
-        </div>
-
-        {/* Slot 5: Categories & Entities */}
-        <button
-          type="button"
-          onClick={() => handleNav("taxonomy")}
-          className={`flex flex-col items-center justify-center h-full gap-0.5 text-[10px] font-medium transition-colors ${
-            activeView === "taxonomy" && !isAccountDrawerOpen
-              ? "text-emerald-400"
-              : "text-neutral-400 active:text-neutral-200"
-          }`}
-        >
-          <FolderTree className="w-4 h-4" />
-          <span>Categories</span>
-        </button>
-
-        {/* Slot 6: Settings & Vault */}
+        {/* Slot 6: Settings, Categories & Vault */}
         <button
           type="button"
           onClick={() => handleNav("settings")}
           className={`flex flex-col items-center justify-center h-full gap-0.5 text-[10px] font-medium transition-colors ${
             (activeView === "settings" ||
+              activeView === "taxonomy" ||
               activeView === "rules" ||
               activeView === "staging") &&
             !isAccountDrawerOpen
