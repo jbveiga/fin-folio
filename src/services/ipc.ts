@@ -124,7 +124,7 @@ const PREVIEW_VAULT_STORAGE_KEY = "finfolio_preview_vault_v1";
 const defaultFallbackDb: FallbackDatabase = {
   vaultStatus: {
     is_open: true,
-    path: "/Users/bernardo/Documents/Pessoal_2026.finfolio",
+    path: "~/Documents/finfolio_vault.finfolio",
     is_encrypted: true,
     is_memory_locked: true,
     schema_version: 1,
@@ -681,6 +681,12 @@ function loadOrInitializeFallbackDb(): FallbackDatabase {
         }
         if (!Array.isArray(parsed.bankProfiles)) {
           parsed.bankProfiles = [];
+        }
+        if (
+          parsed.vaultStatus?.path &&
+          !parsed.vaultStatus.path.startsWith("~")
+        ) {
+          parsed.vaultStatus.path = "~/Documents/finfolio_vault.finfolio";
         }
         const recurringSeedIds = new Set(["tx_1", "tx_6", "tx_7"]);
         parsed.transactions = parsed.transactions.map((item) => ({

@@ -162,10 +162,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib
 
 ## Documentation
 
-- **[app-bible.md](app-bible.md):** Master Product & Technical Architecture Bible.
-- **[finfolio_implementation_plan.md](file:///Users/bernardo/.gemini/antigravity/brain/3909ba39-3bd2-4a2a-bd0e-d188633416a2/finfolio_implementation_plan.md):** Phased engineering roadmap.
-- **[finfolio_ui_ipc_spec.md](file:///Users/bernardo/.gemini/antigravity/brain/3909ba39-3bd2-4a2a-bd0e-d188633416a2/finfolio_ui_ipc_spec.md):** UI/UX tokens, component architecture, and Tauri IPC command contracts.
-- **[finfolio_cicd_publishing_spec.md](file:///Users/bernardo/.gemini/antigravity/brain/3909ba39-3bd2-4a2a-bd0e-d188633416a2/finfolio_cicd_publishing_spec.md):** GitHub Actions desktop releases & GitHub Pages web demo pipeline.
+- **[app-bible.md](./app-bible.md):** Complete architectural tenets, security model, and data structures.
 
 ---
 
