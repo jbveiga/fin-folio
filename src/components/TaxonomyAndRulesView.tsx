@@ -64,7 +64,7 @@ export const TaxonomyView: React.FC = () => {
   const level1 = categories.filter((c) => !c.parent_id);
 
   return (
-    <div className="grid grid-cols-2 gap-6 p-6 h-full overflow-y-auto bg-neutral-950 text-neutral-100">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 p-3 md:p-6 h-full overflow-y-auto bg-neutral-950 text-neutral-100">
       {/* Left Column: 3-Level Category Hierarchy Manager */}
       <div className="bg-neutral-900/60 border border-neutral-800 rounded-xl p-4 flex flex-col gap-4">
         <div className="flex items-center justify-between">
@@ -81,7 +81,7 @@ export const TaxonomyView: React.FC = () => {
 
         <form
           onSubmit={(e) => void handleAddCategory(e)}
-          className="grid grid-cols-[1fr_150px_100px_42px_auto] gap-2 text-xs"
+          className="flex flex-wrap md:grid md:grid-cols-[1fr_150px_100px_42px_auto] gap-2 text-xs"
         >
           <input
             type="text"
@@ -229,7 +229,7 @@ export const TaxonomyView: React.FC = () => {
 
         <form
           onSubmit={(e) => void handleAddEntity(e)}
-          className="grid grid-cols-[1fr_170px_110px_auto] gap-2 text-xs"
+          className="flex flex-wrap md:grid md:grid-cols-[1fr_170px_110px_auto] gap-2 text-xs"
         >
           <input
             type="text"
@@ -375,7 +375,7 @@ export const ImportRulesView: React.FC = () => {
   })();
 
   return (
-    <div className="p-6 h-full overflow-y-auto bg-neutral-950 text-neutral-100 space-y-6">
+    <div className="p-3 md:p-6 h-full overflow-y-auto bg-neutral-950 text-neutral-100 space-y-4 md:space-y-6">
       {/* Live 3-Tier Rule Engine Simulator */}
       <div className="p-4 rounded-xl bg-neutral-900/80 border border-neutral-800 space-y-3">
         <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
@@ -385,7 +385,7 @@ export const ImportRulesView: React.FC = () => {
             Priority)
           </span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3">
           <input
             type="text"
             value={simulatorInput}
@@ -420,7 +420,7 @@ export const ImportRulesView: React.FC = () => {
 
         <form
           onSubmit={(e) => void handleAddRule(e)}
-          className="grid grid-cols-[130px_1fr_180px_180px_90px_auto] gap-2 text-xs"
+          className="flex flex-col md:grid md:grid-cols-[130px_1fr_180px_180px_90px_auto] gap-2 text-xs"
         >
           <select
             value={matchMode}
@@ -495,7 +495,7 @@ export const ImportRulesView: React.FC = () => {
             return (
               <div
                 key={rule.id}
-                className="py-2.5 px-2 grid grid-cols-[80px_110px_1fr_180px_180px_80px_40px] items-center hover:bg-neutral-800/40 rounded"
+                className="py-2.5 px-2 flex flex-wrap md:grid md:grid-cols-[80px_110px_1fr_180px_180px_80px_40px] items-center gap-2 hover:bg-neutral-800/40 rounded"
               >
                 <span className="font-mono text-neutral-400">
                   Prio {rule.priority_weight}
@@ -551,9 +551,9 @@ export const VaultSettingsView: React.FC = () => {
   };
 
   return (
-    <div className="p-6 h-full overflow-y-auto bg-neutral-950 text-neutral-100 grid grid-cols-2 gap-6">
+    <div className="p-3 md:p-6 h-full overflow-y-auto bg-neutral-950 text-neutral-100 grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
       {/* Left: SQLCipher AES-256 & Argon2id Security */}
-      <div className="p-5 rounded-xl bg-neutral-900/60 border border-neutral-800 space-y-4">
+      <div className="p-4 md:p-5 rounded-xl bg-neutral-900/60 border border-neutral-800 space-y-4">
         <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm">
           <Shield className="w-4 h-4" />
           <span>
@@ -595,7 +595,7 @@ export const VaultSettingsView: React.FC = () => {
             <KeyRound className="w-3.5 h-3.5 text-emerald-400" />
             Live Database Rekey (Add, Change, or Remove Master Passphrase)
           </label>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <input
               type="password"
               placeholder="Enter new master passphrase..."
@@ -631,7 +631,7 @@ export const VaultSettingsView: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
           <button
             onClick={() => void handleExport("csv")}
             className="px-3.5 py-2 rounded-lg bg-emerald-500 text-neutral-950 font-semibold hover:bg-emerald-400"

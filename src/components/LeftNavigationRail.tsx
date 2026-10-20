@@ -99,7 +99,7 @@ export const LeftNavigationRail: React.FC = () => {
 
   if (isSidebarCollapsed) {
     return (
-      <aside className="w-14 h-screen bg-neutral-900 border-r border-neutral-800 flex flex-col items-center py-3 justify-between shrink-0">
+      <aside className="hidden md:flex w-14 h-screen bg-neutral-900 border-r border-neutral-800 flex-col items-center py-3 justify-between shrink-0">
         <div className="flex flex-col items-center gap-3">
           <button
             onClick={toggleSidebar}
@@ -148,7 +148,7 @@ export const LeftNavigationRail: React.FC = () => {
     selectedAccountIds.length === accountSummaries.length;
 
   return (
-    <aside className="w-[240px] h-screen bg-neutral-900 border-r border-neutral-800 flex flex-col justify-between shrink-0 select-none">
+    <aside className="hidden md:flex w-[240px] h-screen bg-neutral-900 border-r border-neutral-800 flex-col justify-between shrink-0 select-none">
       {/* Top Brand + Primary Views */}
       <div className="p-3 space-y-4">
         <div className="flex items-center justify-between px-1">

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { LeftNavigationRail } from "./components/LeftNavigationRail";
 import { TopContextHeader } from "./components/TopContextHeader";
 import { VirtualizedLedgerView } from "./components/VirtualizedLedgerView";
@@ -9,6 +9,9 @@ import {
   VaultSettingsView,
 } from "./components/TaxonomyAndRulesView";
 import { CommandPaletteModal } from "./components/CommandPaletteModal";
+import { MobileBottomBar } from "./components/MobileBottomBar";
+import { MobileAccountDrawer } from "./components/MobileAccountDrawer";
+import { MobileQuickAddModal } from "./components/MobileQuickAddModal";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useFinFolioStore } from "./stores/useFinFolioStore";
 
@@ -23,6 +26,10 @@ export function App() {
     setImportModalOpen,
   } = useFinFolioStore();
 
+  const [isMobileAccountDrawerOpen, setMobileAccountDrawerOpen] =
+    useState(false);
+  const [isMobileQuickAddOpen, setMobileQuickAddOpen] = useState(false);
+
   useEffect(() => {
     void initializeWorkspace();
   }, [initializeWorkspace]);
@@ -35,10 +42,10 @@ export function App() {
   }, [isImportModalOpen, setActiveView, setImportModalOpen]);
 
   return (
-    <div className="flex h-screen w-screen bg-neutral-950 text-neutral-100 overflow-hidden font-sans">
+    <div className="flex h-[100dvh] w-screen bg-neutral-950 text-neutral-100 overflow-hidden font-sans">
       <LeftNavigationRail />
 
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
         <TopContextHeader />
 
         <main className="flex-1 min-h-0 overflow-hidden">
@@ -49,6 +56,22 @@ export function App() {
           {activeView === "settings" && <VaultSettingsView />}
         </main>
       </div>
+
+      <MobileBottomBar
+        isAccountDrawerOpen={isMobileAccountDrawerOpen}
+        onOpenAccounts={() => setMobileAccountDrawerOpen(true)}
+        onOpenQuickAdd={() => setMobileQuickAddOpen(true)}
+      />
+
+      <MobileAccountDrawer
+        isOpen={isMobileAccountDrawerOpen}
+        onClose={() => setMobileAccountDrawerOpen(false)}
+      />
+
+      <MobileQuickAddModal
+        isOpen={isMobileQuickAddOpen}
+        onClose={() => setMobileQuickAddOpen(false)}
+      />
 
       <CommandPaletteModal />
     </div>

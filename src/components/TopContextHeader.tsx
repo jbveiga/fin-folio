@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Command,
   Plus,
@@ -7,6 +7,8 @@ import {
   TrendingDown,
   Wallet,
   Activity,
+  Lock,
+  Unlock,
   X,
 } from "lucide-react";
 import { useFinFolioStore } from "../stores/useFinFolioStore";
@@ -14,6 +16,7 @@ import { formatCents } from "../utils/money";
 
 export const TopContextHeader: React.FC = () => {
   const {
+    vaultStatus,
     accountSummaries,
     selectedAccountIds,
     periodInflowCents,
@@ -31,26 +34,170 @@ export const TopContextHeader: React.FC = () => {
     setStatusBanner,
   } = useFinFolioStore();
 
+  const [isMobileSearchOpen, setMobileSearchOpen] = useState(false);
+
   // Compute Selected Balance across currently checked accounts in integer cents
   const selectedBalanceCents = accountSummaries
     .filter((s) => selectedAccountIds.includes(s.account.id))
     .reduce((acc, s) => acc + s.current_balance_cents, 0);
 
   return (
-    <header className="border-b border-neutral-800 bg-neutral-900/90 backdrop-blur-sm shrink-0">
+    <header className="border-b border-neutral-800 bg-neutral-900/90 backdrop-blur-sm shrink-0 pt-[max(0px,env(safe-area-inset-top))]">
       {statusBannerMessage && (
-        <div className="bg-emerald-500/15 border-b border-emerald-500/30 px-4 py-1.5 flex items-center justify-between text-xs text-emerald-300">
-          <span className="font-mono">{statusBannerMessage}</span>
+        <div className="bg-emerald-500/15 border-b border-emerald-500/30 px-3 md:px-4 py-1.5 flex items-center justify-between text-xs text-emerald-300">
+          <span className="font-mono truncate">{statusBannerMessage}</span>
           <button
             onClick={() => setStatusBanner(null)}
-            className="text-emerald-400 hover:text-white"
+            className="text-emerald-400 hover:text-white ml-2 shrink-0"
           >
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
 
-      <div className="h-16 px-4 flex items-center justify-between gap-4">
+      {/* =================================================================== */}
+      {/* MOBILE HEADER (< 768px): Brand + Search Trigger + 2 Essential KPIs  */}
+      {/* =================================================================== */}
+      <div className="md:hidden px-3 py-2 space-y-2">
+        {/* Top Row: Brand, Search Toggle & Vault Badge */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-md bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold text-xs">
+              FF
+            </div>
+            <span className="text-sm font-semibold tracking-tight text-white">
+              FinFolio
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setMobileSearchOpen((v) => !v)}
+              className={`px-2.5 py-1 rounded-lg border text-xs flex items-center gap-1.5 transition-colors ${
+                isMobileSearchOpen || searchQuery || startDate || endDate
+                  ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300"
+                  : "bg-neutral-950 border-neutral-800 text-neutral-300"
+              }`}
+              title="Toggle Search & Date Filter"
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span>Filter</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveView("settings")}
+              className="px-2 py-1 rounded-lg bg-neutral-950 border border-neutral-800 text-[11px] text-neutral-300 flex items-center gap-1"
+              title="Vault Security Status"
+            >
+              {vaultStatus?.is_encrypted ? (
+                <>
+                  <Lock className="w-3 h-3 text-emerald-400" />
+                  <span className="text-emerald-400 font-medium">Encrypted</span>
+                </>
+              ) : (
+                <>
+                  <Unlock className="w-3 h-3 text-amber-400" />
+                  <span className="text-neutral-300">Vault</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Expandable Mobile Search & Date Filter Strip */}
+        {(isMobileSearchOpen || searchQuery || startDate || endDate) && (
+          <div className="p-2 rounded-xl bg-neutral-950 border border-neutral-800 space-y-2">
+            <div className="relative flex items-center">
+              <Search className="w-3.5 h-3.5 text-neutral-500 absolute left-2.5" />
+              <input
+                type="text"
+                placeholder="Filter merchant, category, or description..."
+                value={searchQuery}
+                onChange={(e) => void setSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-7 py-1.5 rounded-lg bg-neutral-900 border border-neutral-800 text-xs text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:border-emerald-500"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => void setSearchQuery("")}
+                  className="absolute right-2 text-neutral-400 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-1.5 text-xs">
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => void setDateRange(e.target.value, endDate)}
+                className="flex-1 px-2 py-1 rounded-lg bg-neutral-900 border border-neutral-800 text-neutral-300 font-mono text-[11px]"
+              />
+              <span className="text-neutral-500">→</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => void setDateRange(startDate, e.target.value)}
+                className="flex-1 px-2 py-1 rounded-lg bg-neutral-900 border border-neutral-800 text-neutral-300 font-mono text-[11px]"
+              />
+              {(startDate || endDate) && (
+                <button
+                  type="button"
+                  onClick={() => void setDateRange("", "")}
+                  className="px-2 py-1 rounded-lg bg-neutral-800 text-neutral-300 text-[11px]"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Row 2: 2 Essential Mobile KPIs (Selected Balance & Net Cash Flow) */}
+        <div className="grid grid-cols-2 gap-2">
+          <div className="px-3 py-1.5 rounded-xl bg-neutral-950/90 border border-neutral-800 flex items-center justify-between">
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold truncate">
+                Selected Balance ({selectedAccountIds.length})
+              </div>
+              <div
+                className={`text-sm font-bold font-mono tabular-nums truncate ${
+                  selectedBalanceCents >= 0
+                    ? "text-neutral-100"
+                    : "text-rose-400"
+                }`}
+              >
+                {formatCents(selectedBalanceCents)}
+              </div>
+            </div>
+            <Wallet className="w-4 h-4 text-emerald-400/70 shrink-0 ml-1" />
+          </div>
+
+          <div className="px-3 py-1.5 rounded-xl bg-neutral-950/90 border border-neutral-800 flex items-center justify-between">
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold truncate">
+                Net Cash Flow
+              </div>
+              <div
+                className={`text-sm font-bold font-mono tabular-nums truncate ${
+                  netCashFlowCents >= 0 ? "text-emerald-400" : "text-rose-400"
+                }`}
+              >
+                {formatCents(netCashFlowCents, true)}
+              </div>
+            </div>
+            <Activity className="w-4 h-4 text-sky-400/70 shrink-0 ml-1" />
+          </div>
+        </div>
+      </div>
+
+      {/* =================================================================== */}
+      {/* DESKTOP HEADER (>= 768px): 4 Live KPI Cards + Search & Actions      */}
+      {/* =================================================================== */}
+      <div className="hidden md:flex h-16 px-4 items-center justify-between gap-4">
         {/* 4 Live KPI Cards */}
         <div className="grid grid-cols-4 gap-3 flex-1 max-w-3xl">
           <div className="px-3 py-1.5 rounded-lg bg-neutral-950/80 border border-neutral-800 flex items-center justify-between">

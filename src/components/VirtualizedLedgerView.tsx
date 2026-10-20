@@ -132,13 +132,18 @@ export const VirtualizedLedgerView: React.FC = () => {
     }
   };
 
-  // Virtualizer setup (36px compact row per Design Spec, 230px when split drawer is expanded)
+  // Virtualizer setup (36px compact row on desktop, 58px 2-line touch card on mobile, 230px when split drawer is expanded)
   const rowVirtualizer = useVirtualizer({
     count: transactions.length,
     getScrollElement: () => parentRef.current,
     estimateSize: (index) => {
       const txId = transactions[index]?.transaction.id;
-      return txId && expandedSplitTxIds.includes(txId) ? 230 : 36;
+      const isMobile =
+        typeof window !== "undefined" && window.innerWidth < 768;
+      if (txId && expandedSplitTxIds.includes(txId)) {
+        return isMobile ? 280 : 230;
+      }
+      return isMobile ? 58 : 36;
     },
     overscan: 12,
   });
@@ -204,12 +209,12 @@ export const VirtualizedLedgerView: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-neutral-950 text-neutral-100">
       {/* Sub-header Toolbar */}
-      <div className="px-4 py-2 border-b border-neutral-800 bg-neutral-900/50 flex items-center justify-between text-xs">
-        <div className="flex items-center gap-3">
-          <span className="font-semibold text-neutral-200">
+      <div className="px-3 md:px-4 py-1.5 md:py-2 border-b border-neutral-800 bg-neutral-900/50 flex items-center justify-between text-xs">
+        <div className="flex flex-wrap items-center gap-2 md:gap-3">
+          <span className="font-semibold text-neutral-200 hidden sm:inline">
             Master Virtualized Ledger
           </span>
-          <span className="text-neutral-500 font-mono">
+          <span className="text-neutral-400 md:text-neutral-500 font-mono text-[11px] md:text-xs">
             Showing {transactions.length.toLocaleString()} of{" "}
             {totalTransactionCount.toLocaleString()} transactions
           </span>
@@ -368,8 +373,8 @@ export const VirtualizedLedgerView: React.FC = () => {
         ))}
       </datalist>
 
-      {/* Grid Column Headers */}
-      <div className="grid grid-cols-[36px_96px_130px_170px_220px_1fr_130px_84px] items-center px-4 h-8 bg-neutral-900 border-b border-neutral-800 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 shrink-0">
+      {/* Grid Column Headers (Desktop >= 768px) */}
+      <div className="hidden md:grid grid-cols-[36px_96px_130px_170px_220px_1fr_130px_84px] items-center px-4 h-8 bg-neutral-900 border-b border-neutral-800 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 shrink-0">
         <div>Rec</div>
         <div>Date</div>
         <div>Account</div>
@@ -440,164 +445,284 @@ export const VirtualizedLedgerView: React.FC = () => {
                     onCancel={() => setEditingTxId(null)}
                   />
                 ) : (
-                  <div className="grid grid-cols-[36px_96px_130px_170px_220px_1fr_130px_84px] items-center px-4 h-9 text-[13px]">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void toggleTransactionReconciled(tx.id);
-                      }}
-                      className="text-neutral-600 hover:text-emerald-400"
-                      title="Reconciled (Space)"
+                  <>
+                    {/* ===================================================== */}
+                    {/* MOBILE 2-LINE TOUCH CARD (< 768px, min-h-[54px])      */}
+                    {/* ===================================================== */}
+                    <div
+                      onClick={() => setEditingTxId(tx.id)}
+                      className="md:hidden min-h-[56px] pl-3 pr-1 py-2 flex items-center justify-between gap-2 active:bg-neutral-800/70"
                     >
-                      {tx.is_reconciled ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                      ) : (
-                        <Circle className="w-4 h-4" />
-                      )}
-                    </button>
+                      <div className="flex-1 min-w-0 space-y-1">
+                        {/* Line 1: Counterparty / Description + Amount */}
+                        <div className="flex items-baseline justify-between gap-2">
+                          <div className="font-medium text-neutral-100 text-sm truncate max-w-[65%]">
+                            {entity
+                              ? entity.normalized_name
+                              : tx.clean_description}
+                            {entity &&
+                              tx.clean_description &&
+                              tx.clean_description.toLowerCase() !==
+                                entity.normalized_name.toLowerCase() && (
+                                <span className="text-xs text-neutral-400 font-normal ml-1.5">
+                                  • {tx.clean_description}
+                                </span>
+                              )}
+                          </div>
+                          <div
+                            className={`font-mono text-sm font-semibold text-right tabular-nums shrink-0 ${
+                              transferPeer
+                                ? "text-sky-400"
+                                : tx.total_amount_cents >= 0
+                                ? "text-emerald-400"
+                                : "text-rose-400"
+                            }`}
+                          >
+                            {formatCents(tx.total_amount_cents, true)}
+                          </div>
+                        </div>
 
-                    <div className="font-mono text-xs text-neutral-300">
-                      {tx.date_posted}
-                    </div>
-
-                    <div className="truncate pr-2">
-                      <span className="px-2 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-[11px] text-neutral-200 truncate">
-                        {account?.name || tx.account_id}
-                      </span>
-                    </div>
-
-                    <div className="font-medium text-neutral-100 truncate pr-2">
-                      {entity ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const nextQuery =
-                              searchQuery.toLowerCase() ===
-                              entity.normalized_name.toLowerCase()
-                                ? ""
-                                : entity.normalized_name;
-                            void setSearchQuery(nextQuery);
-                          }}
-                          title={`Click to filter by entity "${entity.normalized_name}"`}
-                          className="hover:underline hover:text-emerald-400 cursor-pointer truncate text-left"
-                        >
-                          {entity.normalized_name}
-                        </button>
-                      ) : (
-                        "—"
-                      )}
-                    </div>
-
-                    <div className="truncate pr-2 flex items-center gap-1.5">
-                      {splits.length > 1 ? (
-                        <span className="px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 text-[11px] font-medium flex items-center gap-1">
-                          <GitBranch className="w-3 h-3" />
-                          {splits.length} Splits
-                        </span>
-                      ) : transferPeer ? (
-                        <span className="px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[11px] font-medium flex items-center gap-1">
-                          <ArrowRightLeft className="w-3 h-3" />
-                          Transfer → {transferPeer.name}
-                        </span>
-                      ) : primaryCat ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const nextQuery =
-                              searchQuery.toLowerCase() ===
-                              primaryCat.name.toLowerCase()
-                                ? ""
-                                : primaryCat.name;
-                            void setSearchQuery(nextQuery);
-                          }}
-                          title={`Click to filter by category "${primaryCat.name}"`}
-                          className="px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 hover:ring-1 hover:ring-emerald-400/50 cursor-pointer text-[11px] text-neutral-200 truncate flex items-center gap-1.5 transition-shadow"
-                        >
-                          <span
-                            className="w-2 h-2 rounded-full shrink-0"
-                            style={{ backgroundColor: primaryCat.color_hex }}
-                          />
-                          <span className="truncate">
-                            {categoryPathMap.get(primaryCat.id) ||
-                              primaryCat.name}
+                        {/* Line 2: Date + Account Tag + Clickable Category Pill */}
+                        <div className="text-[11px] text-neutral-400 flex items-center gap-1.5 flex-wrap">
+                          <span className="font-mono text-[10px] text-neutral-400">
+                            {tx.date_posted}
                           </span>
-                        </button>
-                      ) : (
-                        <span className="text-xs text-neutral-500 italic">
-                          Uncategorized
-                        </span>
-                      )}
+                          <span className="text-neutral-600">•</span>
+                          <span className="px-1.5 py-0.5 rounded bg-neutral-800 border border-neutral-700/80 text-[10px] text-neutral-300 truncate max-w-[110px]">
+                            {account?.name || tx.account_id}
+                          </span>
+
+                          {splits.length > 1 ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleSplitExpanded(tx.id);
+                              }}
+                              className="px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 text-[10px] font-medium flex items-center gap-1"
+                            >
+                              <GitBranch className="w-2.5 h-2.5" />
+                              <span>{splits.length} Splits</span>
+                            </button>
+                          ) : transferPeer ? (
+                            <span className="px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[10px] font-medium flex items-center gap-1 truncate max-w-[140px]">
+                              <ArrowRightLeft className="w-2.5 h-2.5 shrink-0" />
+                              <span className="truncate">
+                                {transferPeer.name}
+                              </span>
+                            </span>
+                          ) : primaryCat ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const nextQuery =
+                                  searchQuery.toLowerCase() ===
+                                  primaryCat.name.toLowerCase()
+                                    ? ""
+                                    : primaryCat.name;
+                                void setSearchQuery(nextQuery);
+                              }}
+                              className="px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 text-[10px] text-neutral-200 flex items-center gap-1 truncate max-w-[150px]"
+                            >
+                              <span
+                                className="w-1.5 h-1.5 rounded-full shrink-0"
+                                style={{
+                                  backgroundColor: primaryCat.color_hex,
+                                }}
+                              />
+                              <span className="truncate">
+                                {primaryCat.name}
+                              </span>
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-neutral-500 italic">
+                              Uncategorized
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Generous 44x44px Reconcile Touch Target */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void toggleTransactionReconciled(tx.id);
+                        }}
+                        aria-label="Toggle Reconciled"
+                        className="w-11 h-11 flex items-center justify-center shrink-0 rounded-lg text-neutral-500 active:bg-neutral-800"
+                      >
+                        {tx.is_reconciled ? (
+                          <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                        ) : (
+                          <Circle className="w-5 h-5 text-neutral-600" />
+                        )}
+                      </button>
                     </div>
 
-                    <div className="truncate pr-3 flex items-center gap-2">
-                      <span className="text-neutral-200 truncate">
-                        {tx.clean_description}
-                      </span>
-                      {primarySplit?.notes &&
-                        primarySplit.notes !== tx.clean_description && (
-                          <span className="text-xs text-neutral-500 truncate">
-                            • {primarySplit.notes}
+                    {/* ===================================================== */}
+                    {/* DESKTOP 8-COLUMN GRID (>= 768px)                      */}
+                    {/* ===================================================== */}
+                    <div className="hidden md:grid grid-cols-[36px_96px_130px_170px_220px_1fr_130px_84px] items-center px-4 h-9 text-[13px]">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void toggleTransactionReconciled(tx.id);
+                        }}
+                        className="text-neutral-600 hover:text-emerald-400"
+                        title="Reconciled (Space)"
+                      >
+                        {tx.is_reconciled ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        ) : (
+                          <Circle className="w-4 h-4" />
+                        )}
+                      </button>
+
+                      <div className="font-mono text-xs text-neutral-300">
+                        {tx.date_posted}
+                      </div>
+
+                      <div className="truncate pr-2">
+                        <span className="px-2 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-[11px] text-neutral-200 truncate">
+                          {account?.name || tx.account_id}
+                        </span>
+                      </div>
+
+                      <div className="font-medium text-neutral-100 truncate pr-2">
+                        {entity ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const nextQuery =
+                                searchQuery.toLowerCase() ===
+                                entity.normalized_name.toLowerCase()
+                                  ? ""
+                                  : entity.normalized_name;
+                              void setSearchQuery(nextQuery);
+                            }}
+                            title={`Click to filter by entity "${entity.normalized_name}"`}
+                            className="hover:underline hover:text-emerald-400 cursor-pointer truncate text-left"
+                          >
+                            {entity.normalized_name}
+                          </button>
+                        ) : (
+                          "—"
+                        )}
+                      </div>
+
+                      <div className="truncate pr-2 flex items-center gap-1.5">
+                        {splits.length > 1 ? (
+                          <span className="px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 text-[11px] font-medium flex items-center gap-1">
+                            <GitBranch className="w-3 h-3" />
+                            {splits.length} Splits
+                          </span>
+                        ) : transferPeer ? (
+                          <span className="px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[11px] font-medium flex items-center gap-1">
+                            <ArrowRightLeft className="w-3 h-3" />
+                            Transfer → {transferPeer.name}
+                          </span>
+                        ) : primaryCat ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const nextQuery =
+                                searchQuery.toLowerCase() ===
+                                primaryCat.name.toLowerCase()
+                                  ? ""
+                                  : primaryCat.name;
+                              void setSearchQuery(nextQuery);
+                            }}
+                            title={`Click to filter by category "${primaryCat.name}"`}
+                            className="px-2 py-0.5 rounded-full bg-neutral-800 border border-neutral-700 hover:ring-1 hover:ring-emerald-400/50 cursor-pointer text-[11px] text-neutral-200 truncate flex items-center gap-1.5 transition-shadow"
+                          >
+                            <span
+                              className="w-2 h-2 rounded-full shrink-0"
+                              style={{ backgroundColor: primaryCat.color_hex }}
+                            />
+                            <span className="truncate">
+                              {categoryPathMap.get(primaryCat.id) ||
+                                primaryCat.name}
+                            </span>
+                          </button>
+                        ) : (
+                          <span className="text-xs text-neutral-500 italic">
+                            Uncategorized
                           </span>
                         )}
-                      {isExpenseReimbursement && primaryCat && (
-                        <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] flex items-center gap-1 shrink-0">
-                          <RotateCcw className="w-2.5 h-2.5" />
-                          Nets {primaryCat.name} spend
+                      </div>
+
+                      <div className="truncate pr-3 flex items-center gap-2">
+                        <span className="text-neutral-200 truncate">
+                          {tx.clean_description}
                         </span>
-                      )}
-                    </div>
+                        {primarySplit?.notes &&
+                          primarySplit.notes !== tx.clean_description && (
+                            <span className="text-xs text-neutral-500 truncate">
+                              • {primarySplit.notes}
+                            </span>
+                          )}
+                        {isExpenseReimbursement && primaryCat && (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] flex items-center gap-1 shrink-0">
+                            <RotateCcw className="w-2.5 h-2.5" />
+                            Nets {primaryCat.name} spend
+                          </span>
+                        )}
+                      </div>
 
-                    <div
-                      className={`font-mono text-xs font-semibold text-right tabular-nums ${
-                        transferPeer
-                          ? "text-sky-400"
-                          : tx.total_amount_cents >= 0
-                          ? "text-emerald-400"
-                          : "text-rose-400"
-                      }`}
-                    >
-                      {formatCents(tx.total_amount_cents, true)}
-                    </div>
-
-                    <div className="flex items-center justify-end gap-1">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingTxId(tx.id);
-                        }}
-                        title="Edit Row (Enter / Double-Click)"
-                        className="p-1 rounded text-neutral-400 hover:text-emerald-400 hover:bg-neutral-700"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleSplitExpanded(tx.id);
-                        }}
-                        title="Split Transaction (⌘S)"
-                        className={`p-1 rounded hover:bg-neutral-700 ${
-                          isSplitExpanded || splits.length > 1
-                            ? "text-purple-400"
-                            : "text-neutral-400"
+                      <div
+                        className={`font-mono text-xs font-semibold text-right tabular-nums ${
+                          transferPeer
+                            ? "text-sky-400"
+                            : tx.total_amount_cents >= 0
+                            ? "text-emerald-400"
+                            : "text-rose-400"
                         }`}
                       >
-                        <GitBranch className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void deleteTransaction(tx.id);
-                        }}
-                        title="Delete Transaction"
-                        className="p-1 rounded text-neutral-500 hover:text-rose-400 hover:bg-neutral-700"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                        {formatCents(tx.total_amount_cents, true)}
+                      </div>
+
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingTxId(tx.id);
+                          }}
+                          title="Edit Row (Enter / Double-Click)"
+                          className="p-1 rounded text-neutral-400 hover:text-emerald-400 hover:bg-neutral-700"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleSplitExpanded(tx.id);
+                          }}
+                          title="Split Transaction (⌘S)"
+                          className={`p-1 rounded hover:bg-neutral-700 ${
+                            isSplitExpanded || splits.length > 1
+                              ? "text-purple-400"
+                              : "text-neutral-400"
+                          }`}
+                        >
+                          <GitBranch className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void deleteTransaction(tx.id);
+                          }}
+                          title="Delete Transaction"
+                          className="p-1 rounded text-neutral-500 hover:text-rose-400 hover:bg-neutral-700"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  </>
                 )}
 
                 {/* Inline Split Transaction Editor (`Cmd+S`, Section 5.2) */}
@@ -639,6 +764,8 @@ const InlineRowEditForm: React.FC<InlineRowEditFormProps> = ({
     categories,
     entities,
     saveTransaction,
+    deleteTransaction,
+    toggleSplitExpanded,
     setStatusBanner,
   } = useFinFolioStore();
   const tx = item.transaction;
@@ -729,21 +856,47 @@ const InlineRowEditForm: React.FC<InlineRowEditFormProps> = ({
           onCancel();
         }
       }}
-      className="grid grid-cols-[36px_96px_130px_170px_220px_1fr_130px_84px] items-center px-4 h-9 bg-neutral-900 ring-2 ring-inset ring-emerald-400 text-xs gap-1.5"
+      className="flex flex-col gap-2 p-3 md:grid md:grid-cols-[36px_96px_130px_170px_220px_1fr_130px_84px] md:items-center md:px-4 md:py-0 md:h-9 bg-neutral-900 ring-2 ring-inset ring-emerald-400 text-xs md:gap-1.5"
     >
-      <div className="text-emerald-400 font-mono text-[10px]">EDIT</div>
+      <div className="flex items-center justify-between md:block">
+        <span className="text-emerald-400 font-mono text-[10px]">EDIT</span>
+        <div className="flex items-center gap-1.5 md:hidden">
+          <button
+            type="button"
+            onClick={() => {
+              onCancel();
+              toggleSplitExpanded(tx.id);
+            }}
+            className="px-2 py-1 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[11px] flex items-center gap-1"
+          >
+            <GitBranch className="w-3 h-3" />
+            <span>Split</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              void deleteTransaction(tx.id);
+              onCancel();
+            }}
+            className="px-2 py-1 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[11px] flex items-center gap-1"
+          >
+            <Trash2 className="w-3 h-3" />
+            <span>Delete</span>
+          </button>
+        </div>
+      </div>
 
       <input
         type="date"
         value={datePosted}
         onChange={(e) => setDatePosted(e.target.value)}
-        className="bg-neutral-950 ring-1 ring-emerald-400/60 text-white rounded px-1.5 py-0.5 outline-none font-mono text-[11px]"
+        className="bg-neutral-950 ring-1 ring-emerald-400/60 text-white rounded px-2 py-1 md:px-1.5 md:py-0.5 outline-none font-mono text-[11px]"
       />
 
       <select
         value={accountId}
         onChange={(e) => setAccountId(e.target.value)}
-        className="bg-neutral-950 ring-1 ring-emerald-400/60 text-white rounded px-1.5 py-0.5 outline-none text-[11px]"
+        className="bg-neutral-950 ring-1 ring-emerald-400/60 text-white rounded px-2 py-1 md:px-1.5 md:py-0.5 outline-none text-xs md:text-[11px]"
       >
         {accountSummaries.map((s) => (
           <option key={s.account.id} value={s.account.id}>
@@ -760,13 +913,13 @@ const InlineRowEditForm: React.FC<InlineRowEditFormProps> = ({
         placeholder="Entity..."
         autoFocus
         onFocus={(e) => e.currentTarget.select()}
-        className="bg-neutral-950 ring-2 ring-emerald-400 text-white rounded px-2 py-0.5 outline-none text-xs"
+        className="bg-neutral-950 ring-2 ring-emerald-400 text-white rounded px-2 py-1 md:py-0.5 outline-none text-xs"
       />
 
       <select
         value={catOrTransfer}
         onChange={(e) => setCatOrTransfer(e.target.value)}
-        className="bg-neutral-950 ring-1 ring-emerald-400/60 text-white rounded px-1.5 py-0.5 outline-none text-[11px]"
+        className="bg-neutral-950 ring-1 ring-emerald-400/60 text-white rounded px-2 py-1 md:px-1.5 md:py-0.5 outline-none text-xs md:text-[11px]"
       >
         <option value="">-- Uncategorized --</option>
         <optgroup label="Internal Transfer">
@@ -790,32 +943,35 @@ const InlineRowEditForm: React.FC<InlineRowEditFormProps> = ({
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         onFocus={(e) => e.currentTarget.select()}
-        className="bg-neutral-950 ring-1 ring-emerald-400/60 text-white rounded px-2 py-0.5 outline-none text-xs"
+        className="bg-neutral-950 ring-1 ring-emerald-400/60 text-white rounded px-2 py-1 md:py-0.5 outline-none text-xs"
       />
 
       <input
         type="text"
+        inputMode="decimal"
         value={amountStr}
         onChange={(e) => setAmountStr(e.target.value)}
         onFocus={(e) => e.currentTarget.select()}
-        className="bg-neutral-950 ring-1 ring-emerald-400/60 text-white rounded px-2 py-0.5 outline-none font-mono text-xs text-right"
+        className="bg-neutral-950 ring-1 ring-emerald-400/60 text-white rounded px-2 py-1 md:py-0.5 outline-none font-mono text-xs text-right"
       />
 
-      <div className="flex items-center justify-end gap-1">
+      <div className="flex items-center justify-end gap-2 md:gap-1 pt-1 md:pt-0">
         <button
           type="submit"
           title="Commit Row Edit (Enter)"
-          className="p-1 rounded bg-emerald-500 text-neutral-950 hover:bg-emerald-400"
+          className="px-3 py-1.5 md:p-1 rounded bg-emerald-500 text-neutral-950 font-semibold hover:bg-emerald-400 flex items-center gap-1"
         >
           <Check className="w-3.5 h-3.5" />
+          <span className="md:hidden">Save</span>
         </button>
         <button
           type="button"
           onClick={onCancel}
           title="Cancel Edit (Esc)"
-          className="p-1 rounded bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
+          className="px-3 py-1.5 md:p-1 rounded bg-neutral-800 text-neutral-300 hover:bg-neutral-700 flex items-center gap-1"
         >
           <X className="w-3.5 h-3.5" />
+          <span className="md:hidden">Cancel</span>
         </button>
       </div>
     </form>
@@ -953,12 +1109,12 @@ const InlineSplitEditor: React.FC<InlineSplitEditorProps> = ({
           onClose();
         }
       }}
-      className={`mx-8 my-2 p-3 rounded-lg bg-neutral-950 border text-xs space-y-2 ${
+      className={`mx-2 md:mx-8 my-2 p-3 rounded-lg bg-neutral-950 border text-xs space-y-2 ${
         isBalanced ? "border-emerald-500/40" : "border-amber-500/60"
       }`}
     >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2 md:gap-3">
           <span className="font-semibold text-purple-300 flex items-center gap-1.5">
             <GitBranch className="w-3.5 h-3.5" />
             Split Allocation (Parent Amount: {formatCents(parentCents)})
@@ -998,11 +1154,11 @@ const InlineSplitEditor: React.FC<InlineSplitEditorProps> = ({
         </div>
       </div>
 
-      <div className="space-y-1.5">
+      <div className="space-y-2 md:space-y-1.5">
         {draftSplits.map((sp, idx) => (
           <div
             key={idx}
-            className="grid grid-cols-[80px_140px_240px_1fr_32px] items-center gap-2"
+            className="flex flex-col md:grid md:grid-cols-[80px_140px_240px_1fr_32px] md:items-center gap-1.5 md:gap-2 p-2 md:p-0 rounded bg-neutral-900/50 md:bg-transparent"
           >
             <span className="text-neutral-400 font-mono">
               ├─ Split {idx + 1}:
