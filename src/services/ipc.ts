@@ -8,6 +8,7 @@ import {
   ImportRule,
   LedgerQueryResultDto,
   ParseStatementResultDto,
+  RecurringSchedule,
   SaveTransactionInput,
   StagedTransactionRowDto,
   TransactionWithSplits,
@@ -32,6 +33,7 @@ interface FallbackDatabase {
   categories: Category[];
   entities: Entity[];
   rules: ImportRule[];
+  recurringSchedules: RecurringSchedule[];
   transactions: TransactionWithSplits[];
 }
 
@@ -311,6 +313,68 @@ const defaultFallbackDb: FallbackDatabase = {
       hit_count: 21,
     },
   ],
+  recurringSchedules: [
+    {
+      id: "rec_edp",
+      name: "EDP Comercial (Eletricidade)",
+      expected_amount_cents: -6_450,
+      recurrence_interval: "Monthly",
+      day_of_month: 18,
+      account_id: "acc_cgd",
+      category_id: "cat_edp",
+      entity_id: "ent_edp",
+      is_active: true,
+      notes: "Fatura mensal eletricidade & gás",
+    },
+    {
+      id: "rec_epal",
+      name: "EPAL Águas Lisboa",
+      expected_amount_cents: -2_480,
+      recurrence_interval: "Monthly",
+      day_of_month: 19,
+      account_id: "acc_cgd",
+      category_id: "cat_agua",
+      entity_id: "ent_epal",
+      is_active: true,
+      notes: "Consumo mensal água",
+    },
+    {
+      id: "rec_voda",
+      name: "Vodafone Fibra & Móvel",
+      expected_amount_cents: -4_290,
+      recurrence_interval: "Monthly",
+      day_of_month: 22,
+      account_id: "acc_cgd",
+      category_id: "cat_telecom",
+      entity_id: "ent_voda",
+      is_active: true,
+      notes: "Pacote Fibra 1Gbps + 2 cartões móveis",
+    },
+    {
+      id: "rec_gym",
+      name: "Ginásio Fitness",
+      expected_amount_cents: -3_500,
+      recurrence_interval: "Monthly",
+      day_of_month: 25,
+      account_id: "acc_bcp",
+      category_id: "cat_saude",
+      entity_id: null,
+      is_active: true,
+      notes: "Mensalidade livre-trânsito",
+    },
+    {
+      id: "rec_stream",
+      name: "Netflix & Spotify",
+      expected_amount_cents: -2_398,
+      recurrence_interval: "Monthly",
+      day_of_month: 28,
+      account_id: "acc_revolut",
+      category_id: "cat_pess",
+      entity_id: null,
+      is_active: true,
+      notes: "Subscrições mensais streaming",
+    },
+  ],
   transactions: [
     {
       transaction: {
@@ -323,6 +387,8 @@ const defaultFallbackDb: FallbackDatabase = {
         clean_description: "TECHCORP PORTUGAL LDA",
         dedup_hash: "seed_tx_1",
         is_reconciled: true,
+        is_recurring: true,
+        recurrence_interval: "Monthly",
       },
       splits: [
         {
@@ -451,6 +517,8 @@ const defaultFallbackDb: FallbackDatabase = {
         clean_description: "EDP COMERCIAL",
         dedup_hash: "seed_tx_6",
         is_reconciled: false,
+        is_recurring: true,
+        recurrence_interval: "Monthly",
       },
       splits: [
         {
@@ -475,6 +543,8 @@ const defaultFallbackDb: FallbackDatabase = {
         clean_description: "EPAL ÁGUAS",
         dedup_hash: "seed_tx_7",
         is_reconciled: false,
+        is_recurring: true,
+        recurrence_interval: "Monthly",
       },
       splits: [
         {
@@ -522,6 +592,25 @@ function loadOrInitializeFallbackDb(): FallbackDatabase {
             c.monthly_budget_cents !== undefined
               ? c.monthly_budget_cents
               : defaultBudgetMap.get(c.id) ?? null,
+        }));
+        if (!Array.isArray(parsed.recurringSchedules)) {
+          parsed.recurringSchedules = cloneDefaultFallbackDb().recurringSchedules;
+        }
+        const recurringSeedIds = new Set(["tx_1", "tx_6", "tx_7"]);
+        parsed.transactions = parsed.transactions.map((item) => ({
+          ...item,
+          transaction: {
+            ...item.transaction,
+            is_recurring:
+              item.transaction.is_recurring !== undefined
+                ? item.transaction.is_recurring
+                : recurringSeedIds.has(item.transaction.id),
+            recurrence_interval:
+              item.transaction.recurrence_interval ||
+              (recurringSeedIds.has(item.transaction.id)
+                ? "Monthly"
+                : undefined),
+          },
         }));
         return parsed;
       }
@@ -794,6 +883,51 @@ export const ipc = {
     }
     fallbackDb.rules = fallbackDb.rules.filter((r) => r.id !== id);
     persistFallbackDb();
+  },
+
+  async listRecurringSchedules(): Promise<RecurringSchedule[]> {
+    return [...fallbackDb.recurringSchedules].sort(
+      (a, b) => a.day_of_month - b.day_of_month
+    );
+  },
+
+  async saveRecurringSchedule(
+    schedule: RecurringSchedule
+  ): Promise<RecurringSchedule> {
+    const clampedDay = Math.max(
+      1,
+      Math.min(31, Math.trunc(schedule.day_of_month || 1))
+    );
+    const saved: RecurringSchedule = {
+      ...schedule,
+      id: schedule.id || `rec_${Date.now()}`,
+      day_of_month: clampedDay,
+    };
+    const idx = fallbackDb.recurringSchedules.findIndex(
+      (r) => r.id === saved.id
+    );
+    if (idx >= 0) {
+      fallbackDb.recurringSchedules[idx] = saved;
+    } else {
+      fallbackDb.recurringSchedules.push(saved);
+    }
+    persistFallbackDb();
+    return saved;
+  },
+
+  async deleteRecurringSchedule(id: string): Promise<void> {
+    fallbackDb.recurringSchedules = fallbackDb.recurringSchedules.filter(
+      (r) => r.id !== id
+    );
+    persistFallbackDb();
+  },
+
+  async toggleRecurringActive(id: string): Promise<RecurringSchedule | null> {
+    const target = fallbackDb.recurringSchedules.find((r) => r.id === id);
+    if (!target) return null;
+    target.is_active = !target.is_active;
+    persistFallbackDb();
+    return { ...target };
   },
 
   async applyRulesToTransactions(onlyUncategorized: boolean): Promise<{
@@ -1088,6 +1222,21 @@ export const ipc = {
       }
     }
 
+    const existingIdx = fallbackDb.transactions.findIndex(
+      (t) => t.transaction.id === txId
+    );
+    const existingTx =
+      existingIdx >= 0 ? fallbackDb.transactions[existingIdx].transaction : null;
+
+    const isRecurringFlag =
+      transaction.is_recurring !== undefined
+        ? transaction.is_recurring
+        : existingTx?.is_recurring ?? false;
+    const recurrenceInterval =
+      transaction.recurrence_interval ||
+      existingTx?.recurrence_interval ||
+      (isRecurringFlag ? "Monthly" : undefined);
+
     const saved: TransactionWithSplits = {
       transaction: {
         id: txId,
@@ -1097,8 +1246,10 @@ export const ipc = {
         total_amount_cents: transaction.total_amount_cents,
         raw_bank_string: transaction.raw_bank_string || transaction.clean_description,
         clean_description: transaction.clean_description,
-        dedup_hash: `manual_${txId}`,
+        dedup_hash: existingTx?.dedup_hash || `manual_${txId}`,
         is_reconciled: transaction.is_reconciled,
+        is_recurring: isRecurringFlag,
+        recurrence_interval: recurrenceInterval,
       },
       splits: transaction.splits.map((s, idx) => ({
         id: `sp_${txId}_${idx}`,
@@ -1111,14 +1262,40 @@ export const ipc = {
       running_balance_cents: null,
     };
 
-    const existingIdx = fallbackDb.transactions.findIndex(
-      (t) => t.transaction.id === txId
-    );
     if (existingIdx >= 0) {
       fallbackDb.transactions[existingIdx] = saved;
     } else {
       fallbackDb.transactions.unshift(saved);
     }
+
+    // If user created/saved a transaction flagged as recurring, ensure a corresponding RecurringSchedule exists
+    if (isRecurringFlag) {
+      const ent = entityId
+        ? fallbackDb.entities.find((e) => e.id === entityId)
+        : undefined;
+      const scheduleName = ent?.normalized_name || transaction.clean_description;
+      const alreadyExists = fallbackDb.recurringSchedules.some(
+        (r) =>
+          (entityId && r.entity_id === entityId) ||
+          r.name.toLowerCase() === scheduleName.toLowerCase()
+      );
+      if (!alreadyExists && scheduleName) {
+        const parsedDay = Number(transaction.date_posted.split("-")[2]) || 1;
+        fallbackDb.recurringSchedules.push({
+          id: `rec_${Date.now()}`,
+          name: scheduleName,
+          expected_amount_cents: transaction.total_amount_cents,
+          recurrence_interval: recurrenceInterval || "Monthly",
+          day_of_month: Math.max(1, Math.min(31, parsedDay)),
+          account_id: transaction.account_id,
+          category_id: transaction.splits[0]?.category_id || null,
+          entity_id: entityId || null,
+          is_active: true,
+          notes: transaction.splits[0]?.notes || null,
+        });
+      }
+    }
+
     persistFallbackDb();
     return saved;
   },
@@ -1650,6 +1827,7 @@ export const ipc = {
         categories: fallbackDb.categories,
         entities: fallbackDb.entities,
         rules: fallbackDb.rules,
+        recurringSchedules: fallbackDb.recurringSchedules,
         transactions: fallbackDb.transactions,
       },
       null,
@@ -1676,6 +1854,9 @@ export const ipc = {
     fallbackDb.categories = parsed.categories;
     fallbackDb.entities = parsed.entities;
     fallbackDb.rules = Array.isArray(parsed.rules) ? parsed.rules : [];
+    fallbackDb.recurringSchedules = Array.isArray(parsed.recurringSchedules)
+      ? parsed.recurringSchedules
+      : cloneDefaultFallbackDb().recurringSchedules;
     fallbackDb.transactions = parsed.transactions;
     persistFallbackDb();
   },
@@ -1691,6 +1872,7 @@ export const ipc = {
       fallbackDb.categories = fresh.categories;
       fallbackDb.entities = fresh.entities;
       fallbackDb.rules = fresh.rules;
+      fallbackDb.recurringSchedules = fresh.recurringSchedules;
       fallbackDb.transactions = fresh.transactions;
       persistFallbackDb();
     }

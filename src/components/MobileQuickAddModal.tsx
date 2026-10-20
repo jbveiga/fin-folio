@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, X, Check } from "lucide-react";
+import { Plus, X, Check, Repeat } from "lucide-react";
 import { useFinFolioStore } from "../stores/useFinFolioStore";
 import { formatCents, parseCentsInput } from "../utils/money";
 
@@ -32,6 +32,7 @@ export const MobileQuickAddModal: React.FC<MobileQuickAddModalProps> = ({
   const [accountId, setAccountId] = useState("");
   const [datePosted, setDatePosted] = useState(todayIso);
   const [description, setDescription] = useState("");
+  const [isRecurring, setIsRecurring] = useState(false);
 
   const categoryPathMap = useMemo(() => {
     const map = new Map(categories.map((c) => [c.id, c]));
@@ -117,6 +118,8 @@ export const MobileQuickAddModal: React.FC<MobileQuickAddModalProps> = ({
       raw_bank_string: cleanDesc,
       clean_description: cleanDesc,
       is_reconciled: false,
+      is_recurring: isRecurring,
+      recurrence_interval: isRecurring ? "Monthly" : undefined,
       splits: [
         {
           category_id: categoryId,
@@ -128,11 +131,15 @@ export const MobileQuickAddModal: React.FC<MobileQuickAddModalProps> = ({
     });
 
     setStatusBanner(
-      `✓ Saved transaction (${formatCents(signedCents, true)})`
+      `✓ Saved ${isRecurring ? "recurring " : ""}transaction (${formatCents(
+        signedCents,
+        true
+      )})`
     );
     setActiveView("ledger");
     setEntityName("");
     setDescription("");
+    setIsRecurring(false);
     setAmountStr("0,00");
     onClose();
   };
@@ -304,6 +311,20 @@ export const MobileQuickAddModal: React.FC<MobileQuickAddModalProps> = ({
             className="w-full px-3 py-2 rounded-xl bg-neutral-950 border border-neutral-800 text-sm text-white focus:outline-none focus:border-emerald-500"
           />
         </div>
+
+        {/* Recurring Toggle */}
+        <label className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-neutral-950 border border-neutral-800 text-xs text-neutral-200 cursor-pointer select-none">
+          <span className="flex items-center gap-2">
+            <Repeat className="w-4 h-4 text-purple-400" />
+            <span>Recurring Monthly Commitment / Subscription</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={isRecurring}
+            onChange={(e) => setIsRecurring(e.target.checked)}
+            className="w-4 h-4 rounded border-neutral-700 bg-neutral-900 accent-purple-500"
+          />
+        </label>
 
         <button
           type="submit"

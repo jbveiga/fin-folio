@@ -3,6 +3,7 @@ import {
   BookOpen,
   BarChart3,
   Target,
+  CalendarClock,
   Wallet,
   Plus,
   Settings,
@@ -32,7 +33,7 @@ export const MobileBottomBar: React.FC<MobileBottomBarProps> = ({
       aria-label="Mobile Bottom Navigation"
       className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-neutral-950/95 backdrop-blur-md border-t border-neutral-800 pb-[env(safe-area-inset-bottom)] select-none"
     >
-      <div className="h-14 grid grid-cols-6 items-center px-1">
+      <div className="h-14 grid grid-cols-7 items-center px-0.5">
         {/* Slot 1: Ledger */}
         <button
           type="button"
@@ -81,13 +82,27 @@ export const MobileBottomBar: React.FC<MobileBottomBarProps> = ({
             type="button"
             onClick={onOpenQuickAdd}
             aria-label="Quick Add Transaction"
-            className="w-11 h-11 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold rounded-full flex items-center justify-center -translate-y-2 shadow-lg shadow-emerald-500/25 active:scale-95 transition-transform"
+            className="w-10 h-10 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold rounded-full flex items-center justify-center -translate-y-2 shadow-lg shadow-emerald-500/25 active:scale-95 transition-transform"
           >
             <Plus className="w-5 h-5 stroke-[2.5]" />
           </button>
         </div>
 
-        {/* Slot 5: Accounts Drawer Trigger */}
+        {/* Slot 5: Recurring Bills */}
+        <button
+          type="button"
+          onClick={() => handleNav("recurring")}
+          className={`flex flex-col items-center justify-center h-full gap-0.5 text-[10px] font-medium transition-colors ${
+            activeView === "recurring" && !isAccountDrawerOpen
+              ? "text-emerald-400"
+              : "text-neutral-400 active:text-neutral-200"
+          }`}
+        >
+          <CalendarClock className="w-4 h-4" />
+          <span>Bills</span>
+        </button>
+
+        {/* Slot 6: Accounts Drawer Trigger */}
         <button
           type="button"
           onClick={onOpenAccounts}

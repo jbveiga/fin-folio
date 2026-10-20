@@ -37,6 +37,11 @@ export const CommandPaletteModal: React.FC = () => {
       run: () => setActiveView("budgets"),
     },
     {
+      label: "Open Recurring Expenses, Subscriptions & Bills Schedule",
+      shortcut: "Recurring",
+      run: () => setActiveView("recurring"),
+    },
+    {
       label: "⚡ Run Auto-Categorization Rules on Uncategorized Transactions",
       shortcut: "Rules",
       run: () => void applyRulesToTransactions(true),

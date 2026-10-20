@@ -14,6 +14,7 @@ import {
   Sparkles,
   AlertTriangle,
   Pencil,
+  Repeat,
   X,
 } from "lucide-react";
 import { useFinFolioStore } from "../stores/useFinFolioStore";
@@ -40,6 +41,7 @@ export const VirtualizedLedgerView: React.FC = () => {
     selectedAccountIds,
     categories,
     entities,
+    recurringSchedules,
     searchQuery,
     activeLedgerRowIdx,
     editingTxId,
@@ -61,6 +63,7 @@ export const VirtualizedLedgerView: React.FC = () => {
     batchToggleReconciled,
     batchDeleteTransactions,
     applyRulesToTransactions,
+    createRecurringFromTransaction,
     setNewTransactionRowOpen,
     setStatusBanner,
   } = useFinFolioStore();
@@ -109,6 +112,7 @@ export const VirtualizedLedgerView: React.FC = () => {
   const [newTxCategoryOrTransfer, setNewTxCategoryOrTransfer] = useState("");
   const [newTxDescription, setNewTxDescription] = useState("");
   const [newTxAmountStr, setNewTxAmountStr] = useState("-25,00");
+  const [newTxIsRecurring, setNewTxIsRecurring] = useState(false);
 
   // Keep default account synced when opening Quick Entry (`Cmd+N`) and focus Entity input
   useEffect(() => {
@@ -199,6 +203,8 @@ export const VirtualizedLedgerView: React.FC = () => {
       raw_bank_string: cleanDesc,
       clean_description: cleanDesc,
       is_reconciled: false,
+      is_recurring: newTxIsRecurring,
+      recurrence_interval: newTxIsRecurring ? "Monthly" : undefined,
       splits: [
         {
           category_id: categoryId,
@@ -211,10 +217,14 @@ export const VirtualizedLedgerView: React.FC = () => {
 
     // Rapid "Add & Next" loop: flash status banner, reset Entity/Description/Amount, keep focus on Entity
     setStatusBanner(
-      `✓ Transaction saved (${formatCents(amountCents, true)}) — ready for next entry`
+      `✓ ${newTxIsRecurring ? "Recurring transaction" : "Transaction"} saved (${formatCents(
+        amountCents,
+        true
+      )}) — ready for next entry`
     );
     setNewTxEntityName("");
     setNewTxDescription("");
+    setNewTxIsRecurring(false);
     setNewTxAmountStr("-");
     requestAnimationFrame(() => {
       quickEntryEntityRef.current?.focus();
@@ -440,6 +450,17 @@ export const VirtualizedLedgerView: React.FC = () => {
             className="px-2 py-1 rounded bg-neutral-900 border border-neutral-700 w-28 font-mono text-right text-white focus:ring-2 focus:ring-emerald-400 focus:outline-none"
           />
 
+          <label className="flex items-center gap-1.5 px-2 py-1 rounded bg-neutral-900 border border-neutral-800 text-xs text-neutral-300 hover:text-white cursor-pointer select-none shrink-0">
+            <input
+              type="checkbox"
+              checked={newTxIsRecurring}
+              onChange={(e) => setNewTxIsRecurring(e.target.checked)}
+              className="rounded bg-neutral-950 border-neutral-700 accent-purple-500"
+            />
+            <Repeat className="w-3.5 h-3.5 text-purple-400" />
+            <span>Recurring</span>
+          </label>
+
           <button
             type="submit"
             className="px-3 py-1 rounded bg-emerald-500 text-neutral-950 font-semibold hover:bg-emerald-400 transition-colors shrink-0"
@@ -463,7 +484,7 @@ export const VirtualizedLedgerView: React.FC = () => {
       </datalist>
 
       {/* Grid Column Headers (Desktop >= 768px) */}
-      <div className="hidden md:grid grid-cols-[32px_36px_96px_130px_170px_220px_1fr_130px_84px] items-center px-4 h-8 bg-neutral-900 border-b border-neutral-800 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 shrink-0">
+      <div className="hidden md:grid grid-cols-[32px_36px_96px_130px_170px_220px_1fr_130px_104px] items-center px-4 h-8 bg-neutral-900 border-b border-neutral-800 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 shrink-0">
         <div className="flex items-center">
           <input
             type="checkbox"
@@ -526,6 +547,19 @@ export const VirtualizedLedgerView: React.FC = () => {
             // Positive transaction amount assigned directly to an Expense category
             const isExpenseReimbursement =
               tx.total_amount_cents > 0 && primaryCat?.direction === "Expense";
+
+            // Detect whether this transaction is flagged as recurring or matches an active RecurringSchedule
+            const isTxRecurring =
+              Boolean(tx.is_recurring) ||
+              recurringSchedules.some(
+                (r) =>
+                  r.is_active &&
+                  ((tx.entity_id && r.entity_id === tx.entity_id) ||
+                    (r.name.trim().length >= 3 &&
+                      tx.clean_description
+                        .toLowerCase()
+                        .includes(r.name.trim().toLowerCase())))
+              );
 
             return (
               <div
@@ -668,6 +702,16 @@ export const VirtualizedLedgerView: React.FC = () => {
                               Uncategorized
                             </span>
                           )}
+
+                          {isTxRecurring && (
+                            <span
+                              className="px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 text-[10px] font-medium flex items-center gap-1 shrink-0"
+                              title="Recurring Commitment"
+                            >
+                              <Repeat className="w-2.5 h-2.5 text-purple-400" />
+                              <span>Recurring</span>
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -693,7 +737,7 @@ export const VirtualizedLedgerView: React.FC = () => {
                     {/* DESKTOP 9-COLUMN GRID (>= 768px)                      */}
                     {/* ===================================================== */}
                     <div
-                      className={`hidden md:grid grid-cols-[32px_36px_96px_130px_170px_220px_1fr_130px_84px] items-center px-4 h-9 text-[13px] ${
+                      className={`hidden md:grid grid-cols-[32px_36px_96px_130px_170px_220px_1fr_130px_104px] items-center px-4 h-9 text-[13px] ${
                         selectedLedgerTxIds.includes(tx.id)
                           ? "bg-emerald-950/25"
                           : ""
@@ -807,6 +851,15 @@ export const VirtualizedLedgerView: React.FC = () => {
                         <span className="text-neutral-200 truncate">
                           {tx.clean_description}
                         </span>
+                        {isTxRecurring && (
+                          <span
+                            className="px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 text-[10px] font-medium flex items-center gap-1 shrink-0"
+                            title="Recurring Monthly Commitment"
+                          >
+                            <Repeat className="w-2.5 h-2.5" />
+                            <span>Recurring</span>
+                          </span>
+                        )}
                         {primarySplit?.notes &&
                           primarySplit.notes !== tx.clean_description && (
                             <span className="text-xs text-neutral-500 truncate">
@@ -834,6 +887,20 @@ export const VirtualizedLedgerView: React.FC = () => {
                       </div>
 
                       <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void createRecurringFromTransaction(tx.id);
+                          }}
+                          title="Promote to Recurring Subscription"
+                          className={`p-1 rounded hover:bg-neutral-700 ${
+                            isTxRecurring
+                              ? "text-purple-400"
+                              : "text-neutral-500 hover:text-purple-300"
+                          }`}
+                        >
+                          <Repeat className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1014,6 +1081,7 @@ const InlineRowEditForm: React.FC<InlineRowEditFormProps> = ({
     saveTransaction,
     deleteTransaction,
     toggleSplitExpanded,
+    createRecurringFromTransaction,
     setStatusBanner,
   } = useFinFolioStore();
   const tx = item.transaction;
@@ -1087,6 +1155,8 @@ const InlineRowEditForm: React.FC<InlineRowEditFormProps> = ({
       raw_bank_string: tx.raw_bank_string,
       clean_description: description.trim() || tx.clean_description,
       is_reconciled: tx.is_reconciled,
+      is_recurring: tx.is_recurring,
+      recurrence_interval: tx.recurrence_interval,
       splits: updatedSplits,
     });
 
@@ -1109,6 +1179,17 @@ const InlineRowEditForm: React.FC<InlineRowEditFormProps> = ({
       <div className="flex items-center justify-between md:block">
         <span className="text-emerald-400 font-mono text-[10px]">EDIT</span>
         <div className="flex items-center gap-1.5 md:hidden">
+          <button
+            type="button"
+            onClick={() => {
+              void createRecurringFromTransaction(tx.id);
+              onCancel();
+            }}
+            className="px-2 py-1 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[11px] flex items-center gap-1"
+          >
+            <Repeat className="w-3 h-3" />
+            <span>Recurring</span>
+          </button>
           <button
             type="button"
             onClick={() => {

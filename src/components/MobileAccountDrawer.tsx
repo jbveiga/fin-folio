@@ -8,6 +8,7 @@ import {
   UploadCloud,
   Sparkles,
   FolderTree,
+  CalendarClock,
   Wallet,
 } from "lucide-react";
 import { useFinFolioStore } from "../stores/useFinFolioStore";
@@ -329,8 +330,19 @@ export const MobileAccountDrawer: React.FC<MobileAccountDrawerProps> = ({
             </form>
           )}
 
-          {/* Secondary Mobile Navigation Shortcuts (Categories, Import & Rules) */}
-          <div className="pt-2 border-t border-neutral-800 grid grid-cols-3 gap-2">
+          {/* Secondary Mobile Navigation Shortcuts (Recurring, Categories, Import & Rules) */}
+          <div className="pt-2 border-t border-neutral-800 grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveView("recurring");
+                onClose();
+              }}
+              className="py-2.5 px-2 rounded-xl bg-neutral-800/80 border border-neutral-700 text-[11px] font-medium text-neutral-200 flex items-center justify-center gap-1"
+            >
+              <CalendarClock className="w-3.5 h-3.5 text-purple-400" />
+              <span>Recurring Bills</span>
+            </button>
             <button
               type="button"
               onClick={() => {

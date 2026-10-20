@@ -10,6 +10,7 @@ import {
   Entity,
   ImportRule,
   ParseStatementResultDto,
+  RecurringSchedule,
   SaveTransactionInput,
   StagedTransactionRowDto,
   TransactionWithSplits,
@@ -32,6 +33,7 @@ interface FinFolioState {
   categories: Category[];
   entities: Entity[];
   rules: ImportRule[];
+  recurringSchedules: RecurringSchedule[];
 
   // Ledger & Context Header KPIs
   transactions: TransactionWithSplits[];
@@ -118,7 +120,7 @@ interface FinFolioState {
   excludeActiveStagingRow: () => void;
   commitAllStagedTransactions: () => Promise<void>;
 
-  // Taxonomy, Budgets & Rules Actions
+  // Taxonomy, Budgets, Recurring & Rules Actions
   saveCategory: (cat: Category) => Promise<void>;
   setCategoryBudget: (
     categoryId: string,
@@ -130,6 +132,10 @@ interface FinFolioState {
   saveRule: (rule: ImportRule) => Promise<void>;
   deleteRule: (id: string) => Promise<void>;
   applyRulesToTransactions: (onlyUncategorized?: boolean) => Promise<number>;
+  saveRecurringSchedule: (schedule: RecurringSchedule) => Promise<void>;
+  deleteRecurringSchedule: (id: string) => Promise<void>;
+  toggleRecurringActive: (id: string) => Promise<void>;
+  createRecurringFromTransaction: (txId: string) => Promise<void>;
 
   // Vault Security, Portability & Benchmark
   rekeyVault: (newPassphrase: string | null) => Promise<void>;
@@ -154,6 +160,7 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
   categories: [],
   entities: [],
   rules: [],
+  recurringSchedules: [],
 
   transactions: [],
   totalTransactionCount: 0,
@@ -180,14 +187,21 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
   pendingRawBytes: [],
 
   initializeWorkspace: async () => {
-    const [vaultStatus, accountSummaries, categories, entities, rules] =
-      await Promise.all([
-        ipc.getVaultStatus(),
-        ipc.listAccounts(),
-        ipc.listCategories(),
-        ipc.listEntities(),
-        ipc.listRules(),
-      ]);
+    const [
+      vaultStatus,
+      accountSummaries,
+      categories,
+      entities,
+      rules,
+      recurringSchedules,
+    ] = await Promise.all([
+      ipc.getVaultStatus(),
+      ipc.listAccounts(),
+      ipc.listCategories(),
+      ipc.listEntities(),
+      ipc.listRules(),
+      ipc.listRecurringSchedules(),
+    ]);
 
     const includedIds = accountSummaries
       .filter((s) => s.account.is_included_in_totals)
@@ -205,6 +219,7 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
       categories,
       entities,
       rules,
+      recurringSchedules,
     });
 
     await get().refreshLedger();
@@ -359,8 +374,11 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
 
   saveTransaction: async (input) => {
     await ipc.saveTransaction(input);
-    const entities = await ipc.listEntities();
-    set({ entities, editingTxId: null });
+    const [entities, recurringSchedules] = await Promise.all([
+      ipc.listEntities(),
+      ipc.listRecurringSchedules(),
+    ]);
+    set({ entities, recurringSchedules, editingTxId: null });
     await get().refreshLedger();
   },
 
@@ -666,6 +684,85 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
       );
     }
     return res.matchedCount;
+  },
+
+  saveRecurringSchedule: async (schedule) => {
+    await ipc.saveRecurringSchedule(schedule);
+    const recurringSchedules = await ipc.listRecurringSchedules();
+    set({ recurringSchedules });
+  },
+
+  deleteRecurringSchedule: async (id) => {
+    await ipc.deleteRecurringSchedule(id);
+    const recurringSchedules = await ipc.listRecurringSchedules();
+    set({ recurringSchedules });
+  },
+
+  toggleRecurringActive: async (id) => {
+    await ipc.toggleRecurringActive(id);
+    const recurringSchedules = await ipc.listRecurringSchedules();
+    set({ recurringSchedules });
+  },
+
+  createRecurringFromTransaction: async (txId) => {
+    const item = get().transactions.find((t) => t.transaction.id === txId);
+    if (!item) return;
+    const { transaction: tx, splits } = item;
+    const ent = tx.entity_id
+      ? get().entities.find((e) => e.id === tx.entity_id)
+      : undefined;
+    const name = ent?.normalized_name || tx.clean_description;
+    const dayOfMonth = Number(tx.date_posted.split("-")[2]) || 1;
+
+    await ipc.saveTransaction({
+      id: tx.id,
+      account_id: tx.account_id,
+      entity_id: tx.entity_id,
+      entity_name: null,
+      date_posted: tx.date_posted,
+      total_amount_cents: tx.total_amount_cents,
+      raw_bank_string: tx.raw_bank_string,
+      clean_description: tx.clean_description,
+      is_reconciled: tx.is_reconciled,
+      is_recurring: true,
+      recurrence_interval: "Monthly",
+      splits: splits.map((s) => ({
+        category_id: s.category_id,
+        transfer_peer_account_id: s.transfer_peer_account_id,
+        split_amount_cents: s.split_amount_cents,
+        notes: s.notes,
+      })),
+    });
+
+    const existingSchedule = get().recurringSchedules.find(
+      (r) =>
+        (tx.entity_id && r.entity_id === tx.entity_id) ||
+        r.name.toLowerCase() === name.toLowerCase()
+    );
+    if (!existingSchedule) {
+      await ipc.saveRecurringSchedule({
+        id: "",
+        name,
+        expected_amount_cents: tx.total_amount_cents,
+        recurrence_interval: "Monthly",
+        day_of_month: Math.max(1, Math.min(31, dayOfMonth)),
+        account_id: tx.account_id,
+        category_id: splits[0]?.category_id || null,
+        entity_id: tx.entity_id,
+        is_active: true,
+        notes: splits[0]?.notes || null,
+      });
+    }
+
+    const recurringSchedules = await ipc.listRecurringSchedules();
+    set({
+      recurringSchedules,
+      statusBannerMessage: `✓ Promoted "${name}" (Day ${String(dayOfMonth).padStart(
+        2,
+        "0"
+      )}) to Monthly Recurring Schedule.`,
+    });
+    await get().refreshLedger();
   },
 
   rekeyVault: async (newPassphrase) => {

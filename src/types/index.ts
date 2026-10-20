@@ -4,10 +4,50 @@ export type ActiveView =
   | "ledger"
   | "analytics"
   | "budgets"
+  | "recurring"
   | "staging"
   | "taxonomy"
   | "rules"
   | "settings";
+
+export type RecurrenceInterval = "Monthly" | "Yearly" | "Weekly";
+
+export interface RecurringSchedule {
+  id: string;
+  name: string;
+  expected_amount_cents: Cents; // Signed integer minor units (negative for expense, positive for income)
+  recurrence_interval: RecurrenceInterval;
+  day_of_month: number; // 1-31
+  account_id: string | null;
+  category_id: string | null;
+  entity_id: string | null;
+  is_active: boolean;
+  notes?: string | null;
+}
+
+export type RecurringBillStatus = "paid" | "due_soon" | "upcoming" | "overdue";
+
+export interface RecurringBillItem {
+  schedule: RecurringSchedule;
+  categoryName: string | null;
+  categoryColor: string | null;
+  entityName: string | null;
+  accountName: string | null;
+  status: RecurringBillStatus;
+  matchedTransactionId: string | null;
+  matchedDatePosted: string | null;
+  daysUntilDue: number;
+  nextDueDate: string; // YYYY-MM-DD
+}
+
+export interface RecurringSummaryKpis {
+  monthlyFixedCommitmentsCents: Cents;
+  paidThisMonthCents: Cents;
+  upcomingRemainingCents: Cents;
+  activeSubscriptionsCount: number;
+  paidCount: number;
+  pendingCount: number;
+}
 
 export interface VaultStatus {
   is_open: boolean;
@@ -91,6 +131,8 @@ export interface Transaction {
   clean_description: string;
   dedup_hash: string;
   is_reconciled: boolean;
+  is_recurring?: boolean;
+  recurrence_interval?: RecurrenceInterval;
 }
 
 export interface TransactionSplit {
@@ -200,5 +242,7 @@ export interface SaveTransactionInput {
   raw_bank_string: string;
   clean_description: string;
   is_reconciled: boolean;
+  is_recurring?: boolean;
+  recurrence_interval?: RecurrenceInterval;
   splits: SaveSplitInput[];
 }
