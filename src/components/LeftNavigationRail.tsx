@@ -4,6 +4,7 @@ import {
   BarChart3,
   Target,
   CalendarClock,
+  Award,
   UploadCloud,
   FolderTree,
   Sparkles,
@@ -74,6 +75,11 @@ export const LeftNavigationRail: React.FC = () => {
       id: "recurring",
       label: "Recurring & Bills",
       icon: <CalendarClock className="w-4 h-4" />,
+    },
+    {
+      id: "report",
+      label: "Report Card",
+      icon: <Award className="w-4 h-4" />,
     },
     {
       id: "staging",

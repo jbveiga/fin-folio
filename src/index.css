@@ -8,3 +8,43 @@
     -webkit-font-smoothing: antialiased;
   }
 }
+
+@media print {
+  /* Hide all interactive navigation chrome and non-printable buttons */
+  aside,
+  header,
+  nav,
+  .print-hidden {
+    display: none !important;
+  }
+
+  /* Allow full-page document flow without scrollbars or fixed viewport clipping */
+  html,
+  body,
+  #root,
+  main,
+  .report-container {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background-color: #ffffff !important;
+    color: #111827 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* High-contrast paper cards and borders for PDF/Printer output */
+  .report-card {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+    border-color: #d1d5db !important;
+    box-shadow: none !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .report-card * {
+    border-color: #e5e7eb !important;
+  }
+}

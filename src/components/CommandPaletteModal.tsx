@@ -42,6 +42,11 @@ export const CommandPaletteModal: React.FC = () => {
       run: () => setActiveView("recurring"),
     },
     {
+      label: "Open Monthly Financial Health Report Card & Grade Shield",
+      shortcut: "Report",
+      run: () => setActiveView("report"),
+    },
+    {
       label: "⚡ Run Auto-Categorization Rules on Uncategorized Transactions",
       shortcut: "Rules",
       run: () => void applyRulesToTransactions(true),

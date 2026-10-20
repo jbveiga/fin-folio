@@ -5,10 +5,69 @@ export type ActiveView =
   | "analytics"
   | "budgets"
   | "recurring"
+  | "report"
   | "staging"
   | "taxonomy"
   | "rules"
   | "settings";
+
+export type ReportGrade = "A+" | "A" | "B" | "C" | "D";
+
+export interface ScorePillar {
+  name: string;
+  score: number;
+  maxScore: number;
+  percentage: number;
+  status: "excellent" | "good" | "warning" | "alert";
+  summary: string;
+}
+
+export interface MonthlyReportCardData {
+  month: string; // YYYY-MM
+  monthLabel: string; // e.g. "October 2026"
+  totalScore: number; // 0 - 100
+  letterGrade: ReportGrade;
+  gradeTitle: string; // e.g. "Excellent Financial Health"
+  pillars: {
+    savingsRate: ScorePillar;
+    budgetDiscipline: ScorePillar;
+    fixedOverhead: ScorePillar;
+    cashFlowGrowth: ScorePillar;
+  };
+  metrics: {
+    inflowCents: Cents;
+    outflowCents: Cents;
+    netSavingsCents: Cents;
+    savingsRatePct: number;
+    totalBudgetedCents: Cents;
+    budgetSpentCents: Cents;
+    safeToSpendCents: Cents;
+    budgetedCategoriesCount: number;
+    overBudgetCount: number;
+    fixedCommitmentsCents: Cents;
+    discretionarySpendCents: Cents;
+    fixedRatioPct: number;
+    discretionaryRatioPct: number;
+  };
+  topCategories: Array<{
+    name: string;
+    categoryPath: string;
+    amountCents: Cents;
+    pct: number;
+    color: string;
+  }>;
+  topMerchants: Array<{
+    name: string;
+    amountCents: Cents;
+    pct: number;
+    txCount: number;
+  }>;
+  insights: Array<{
+    title: string;
+    detail: string;
+    tone: "positive" | "neutral" | "warning";
+  }>;
+}
 
 export type RecurrenceInterval = "Monthly" | "Yearly" | "Weekly";
 

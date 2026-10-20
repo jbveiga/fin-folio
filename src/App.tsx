@@ -5,6 +5,7 @@ import { VirtualizedLedgerView } from "./components/VirtualizedLedgerView";
 import { AnalyticsView } from "./components/AnalyticsView";
 import { BudgetsView } from "./components/BudgetsView";
 import { RecurringView } from "./components/RecurringView";
+import { ReportCardView } from "./components/ReportCardView";
 import { ImportStagingView } from "./components/ImportStagingView";
 import {
   ImportRulesView,
@@ -56,6 +57,7 @@ export function App() {
           {activeView === "analytics" && <AnalyticsView />}
           {activeView === "budgets" && <BudgetsView />}
           {activeView === "recurring" && <RecurringView />}
+          {activeView === "report" && <ReportCardView />}
           {activeView === "staging" && <ImportStagingView />}
           {activeView === "taxonomy" && <TaxonomyView />}
           {activeView === "rules" && <ImportRulesView />}

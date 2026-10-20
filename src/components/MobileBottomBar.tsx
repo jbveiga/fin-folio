@@ -48,18 +48,21 @@ export const MobileBottomBar: React.FC<MobileBottomBarProps> = ({
           <span>Ledger</span>
         </button>
 
-        {/* Slot 2: Analytics */}
+        {/* Slot 2: Analytics & Report Card */}
         <button
           type="button"
-          onClick={() => handleNav("analytics")}
+          onClick={() =>
+            handleNav(activeView === "analytics" ? "report" : "analytics")
+          }
           className={`flex flex-col items-center justify-center h-full gap-0.5 text-[10px] font-medium transition-colors ${
-            activeView === "analytics" && !isAccountDrawerOpen
+            (activeView === "analytics" || activeView === "report") &&
+            !isAccountDrawerOpen
               ? "text-emerald-400"
               : "text-neutral-400 active:text-neutral-200"
           }`}
         >
           <BarChart3 className="w-4 h-4" />
-          <span>Analytics</span>
+          <span>{activeView === "report" ? "Report" : "Analytics"}</span>
         </button>
 
         {/* Slot 3: Budgets */}
