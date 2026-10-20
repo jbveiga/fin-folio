@@ -16,7 +16,7 @@
 You can try FinFolio immediately without installing any software:  
 👉 **[Launch Live Web Demo (https://jbveiga.github.io/fin-folio/)](https://jbveiga.github.io/fin-folio/)**
 
-*The web demo runs client-side with full bi-directional `localStorage` persistence—all your accounts, splits, and categories remain saved in your browser.*
+*The web demo runs client-side with full asynchronous `IndexedDB` persistence (500MB+ capacity, with automatic legacy `localStorage` migration)—all your accounts, splits, and categories remain saved in your browser.*
 
 ---
 
@@ -54,7 +54,7 @@ Every transaction, category, rule, and balance is computed entirely on your loca
 - **Route-Level Code Splitting & Resilient Error Boundaries:** Instant first-paint ledger load via `React.lazy` + `<Suspense>` module chunking and self-healing `<ErrorBoundary>` recovery.
 - **Dual-Runtime Persistence:**
   - **Native Desktop:** SQLCipher (AES-256-CBC + HMAC-SHA512) page-level encrypted `.finfolio` vault with Argon2id KDF and `mlock` page locking.
-  - **Browser Preview:** Automatic `localStorage` bi-directional synchronization, allowing full testing in any modern web browser without native compilation.
+  - **Browser Preview:** High-capacity asynchronous `IndexedDB` storage engine (`500MB+` quota) with transparent one-time `localStorage` auto-migration and a live Storage Engine & Vault Health Monitor.
 
 ---
 

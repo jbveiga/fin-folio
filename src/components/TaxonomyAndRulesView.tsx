@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   FolderTree,
   Building2,
@@ -15,8 +15,12 @@ import {
   KeyRound,
   Play,
   RotateCcw,
+  Database,
+  AlertTriangle,
 } from "lucide-react";
 import { useFinFolioStore } from "../stores/useFinFolioStore";
+import { ipc } from "../services/ipc";
+import { StorageInfo } from "../services/indexedDbVault";
 import { Category, CategoryDirection, Entity, MatchMode } from "../types";
 
 const CURATED_SWATCHES = [
@@ -760,9 +764,21 @@ export const ImportRulesView: React.FC = () => {
   );
 };
 
+function formatStorageBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(2)} MB`;
+}
+
 export const VaultSettingsView: React.FC = () => {
   const {
     vaultStatus,
+    accountSummaries,
+    categories,
+    entities,
+    totalTransactionCount,
     rekeyVault,
     run100kBenchmark,
     exportLedger,
@@ -775,7 +791,18 @@ export const VaultSettingsView: React.FC = () => {
   const [newPassphrase, setNewPassphrase] = useState("");
   const [exportedPreview, setExportedPreview] = useState("");
   const [isBenchmarking, setIsBenchmarking] = useState(false);
+  const [isResetModalOpen, setResetModalOpen] = useState(false);
+  const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
   const restoreInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    void ipc.getStorageInfo().then(setStorageInfo);
+  }, [
+    accountSummaries.length,
+    categories.length,
+    entities.length,
+    totalTransactionCount,
+  ]);
 
   const triggerBrowserDownload = (
     filename: string,
@@ -1011,30 +1038,160 @@ export const VaultSettingsView: React.FC = () => {
           </pre>
         )}
 
-        <div className="pt-4 mt-auto border-t border-neutral-800 space-y-2">
-          <div className="text-xs font-semibold text-neutral-300">
-            Web Preview &amp; Data Sandbox
+        <div className="p-4 mt-auto rounded-xl bg-neutral-950/90 border border-neutral-800 space-y-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-semibold text-neutral-100">
+              <Database className="w-4 h-4 text-emerald-400" />
+              <span>Storage Engine &amp; Vault Health</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className={`px-2.5 py-0.5 rounded-full border text-[11px] font-medium flex items-center gap-1.5 ${
+                  storageInfo?.engine.startsWith("LocalStorage")
+                    ? "bg-amber-500/15 border-amber-500/30 text-amber-300"
+                    : "bg-emerald-500/15 border-emerald-500/30 text-emerald-300"
+                }`}
+              >
+                <span
+                  className={`w-2 h-2 rounded-full animate-pulse ${
+                    storageInfo?.engine.startsWith("LocalStorage")
+                      ? "bg-amber-400"
+                      : "bg-emerald-400"
+                  }`}
+                />
+                <span>
+                  {storageInfo?.engine || "IndexedDB (500MB+ High Capacity)"}
+                </span>
+              </span>
+              <span className="hidden sm:inline-block px-2 py-0.5 rounded bg-neutral-900 border border-neutral-800 text-[10px] font-mono text-neutral-400">
+                ACID Active
+              </span>
+            </div>
           </div>
-          <p className="text-[11px] text-neutral-400">
-            Restore the browser preview database back to the pristine default
-            accounts, categories, entities, and sample transactions.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              if (
-                window.confirm(
-                  "Are you sure you want to reset your local browser data? This will restore the default sample accounts and transactions."
-                )
-              ) {
-                void resetPreviewVault();
-              }
-            }}
-            className="px-3.5 py-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-semibold flex items-center gap-1.5 transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Reset Preview Vault to Sample Data</span>
-          </button>
+
+          {/* Live Storage Usage Meter & Record Breakdown */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[11px] font-mono">
+              <span className="text-neutral-300">
+                {storageInfo
+                  ? `${formatStorageBytes(
+                      storageInfo.estimatedBytes
+                    )} / ${formatStorageBytes(storageInfo.quotaBytes)} capacity`
+                  : "Calculating storage footprint..."}
+              </span>
+              <span className="text-emerald-400">
+                {storageInfo
+                  ? `${Math.max(
+                      0.01,
+                      Number(
+                        (
+                          (storageInfo.estimatedBytes /
+                            Math.max(1, storageInfo.quotaBytes)) *
+                          100
+                        ).toFixed(2)
+                      )
+                    )}% utilized`
+                  : "0.01%"}
+              </span>
+            </div>
+            <div className="h-2 w-full rounded-full bg-neutral-800 overflow-hidden">
+              <div
+                className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                style={{
+                  width: `${
+                    storageInfo
+                      ? Math.min(
+                          100,
+                          Math.max(
+                            2,
+                            (storageInfo.estimatedBytes /
+                              Math.max(1, storageInfo.quotaBytes)) *
+                              100
+                          )
+                        )
+                      : 2
+                  }%`,
+                }}
+              />
+            </div>
+            <div className="text-[11px] font-mono text-neutral-400 pt-0.5">
+              {storageInfo?.accountCount ?? accountSummaries.length} accounts •{" "}
+              {storageInfo?.categoryCount ?? categories.length} categories •{" "}
+              {storageInfo?.entityCount ?? entities.length} counterparties •{" "}
+              {(
+                storageInfo?.transactionCount ?? totalTransactionCount
+              ).toLocaleString()}{" "}
+              transactions
+            </div>
+          </div>
+
+          {/* Action Buttons & Two-Step Safety Confirmation */}
+          {!isResetModalOpen ? (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => void handleDownloadVaultBackup()}
+                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-neutral-950 font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-sm"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download JSON Backup</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => restoreInputRef.current?.click()}
+                className="px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 font-medium text-xs flex items-center gap-1.5 transition-colors"
+              >
+                <Upload className="w-3.5 h-3.5 text-sky-400" />
+                <span>Restore Backup</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setResetModalOpen(true)}
+                className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-medium flex items-center gap-1.5 transition-colors sm:ml-auto"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reset Vault Sandbox</span>
+              </button>
+            </div>
+          ) : (
+            <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-500/40 space-y-2.5 text-xs">
+              <div className="flex items-start gap-2 text-rose-200">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-semibold text-white">
+                    Reset Local Database to Factory State?
+                  </div>
+                  <p className="text-[11px] text-rose-200/80 mt-0.5 leading-relaxed">
+                    This will purge custom transactions, accounts, and budgets
+                    from IndexedDB and restore default starter data. Download a
+                    JSON backup first if you wish to keep your records.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setResetModalOpen(false)}
+                  className="px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-medium text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await resetPreviewVault();
+                    setResetModalOpen(false);
+                    const updated = await ipc.getStorageInfo();
+                    setStorageInfo(updated);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs flex items-center gap-1.5"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Yes, Reset Database</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

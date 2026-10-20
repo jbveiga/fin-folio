@@ -16,6 +16,7 @@ import {
   VaultStatus,
 } from "../types";
 import { parseCentsInput } from "../utils/money";
+import { indexedDbVault, StorageInfo } from "./indexedDbVault";
 
 export const BUILTIN_BANK_PRESETS: BankProfilePreset[] = [
   {
@@ -648,6 +649,49 @@ function cloneDefaultFallbackDb(): FallbackDatabase {
   return JSON.parse(JSON.stringify(defaultFallbackDb)) as FallbackDatabase;
 }
 
+function normalizeParsedFallbackDb(parsed: FallbackDatabase): FallbackDatabase {
+  const defaultBudgetMap = new Map(
+    defaultFallbackDb.categories.map((c) => [
+      c.id,
+      c.monthly_budget_cents ?? null,
+    ])
+  );
+  parsed.categories = parsed.categories.map((c) => ({
+    ...c,
+    monthly_budget_cents:
+      c.monthly_budget_cents !== undefined
+        ? c.monthly_budget_cents
+        : defaultBudgetMap.get(c.id) ?? null,
+  }));
+  if (!Array.isArray(parsed.recurringSchedules)) {
+    parsed.recurringSchedules = cloneDefaultFallbackDb().recurringSchedules;
+  }
+  if (!Array.isArray(parsed.bankProfiles)) {
+    parsed.bankProfiles = [];
+  }
+  if (
+    parsed.vaultStatus?.path &&
+    !parsed.vaultStatus.path.startsWith("~")
+  ) {
+    parsed.vaultStatus.path = "~/Documents/finfolio_vault.finfolio";
+  }
+  const recurringSeedIds = new Set(["tx_1", "tx_6", "tx_7"]);
+  parsed.transactions = parsed.transactions.map((item) => ({
+    ...item,
+    transaction: {
+      ...item.transaction,
+      is_recurring:
+        item.transaction.is_recurring !== undefined
+          ? item.transaction.is_recurring
+          : recurringSeedIds.has(item.transaction.id),
+      recurrence_interval:
+        item.transaction.recurrence_interval ||
+        (recurringSeedIds.has(item.transaction.id) ? "Monthly" : undefined),
+    },
+  }));
+  return parsed;
+}
+
 function loadOrInitializeFallbackDb(): FallbackDatabase {
   if (typeof window === "undefined" || isTauriRuntime()) {
     return cloneDefaultFallbackDb();
@@ -663,75 +707,59 @@ function loadOrInitializeFallbackDb(): FallbackDatabase {
         Array.isArray(parsed.entities) &&
         Array.isArray(parsed.transactions)
       ) {
-        const defaultBudgetMap = new Map(
-          defaultFallbackDb.categories.map((c) => [
-            c.id,
-            c.monthly_budget_cents ?? null,
-          ])
-        );
-        parsed.categories = parsed.categories.map((c) => ({
-          ...c,
-          monthly_budget_cents:
-            c.monthly_budget_cents !== undefined
-              ? c.monthly_budget_cents
-              : defaultBudgetMap.get(c.id) ?? null,
-        }));
-        if (!Array.isArray(parsed.recurringSchedules)) {
-          parsed.recurringSchedules = cloneDefaultFallbackDb().recurringSchedules;
-        }
-        if (!Array.isArray(parsed.bankProfiles)) {
-          parsed.bankProfiles = [];
-        }
-        if (
-          parsed.vaultStatus?.path &&
-          !parsed.vaultStatus.path.startsWith("~")
-        ) {
-          parsed.vaultStatus.path = "~/Documents/finfolio_vault.finfolio";
-        }
-        const recurringSeedIds = new Set(["tx_1", "tx_6", "tx_7"]);
-        parsed.transactions = parsed.transactions.map((item) => ({
-          ...item,
-          transaction: {
-            ...item.transaction,
-            is_recurring:
-              item.transaction.is_recurring !== undefined
-                ? item.transaction.is_recurring
-                : recurringSeedIds.has(item.transaction.id),
-            recurrence_interval:
-              item.transaction.recurrence_interval ||
-              (recurringSeedIds.has(item.transaction.id)
-                ? "Monthly"
-                : undefined),
-          },
-        }));
-        return parsed;
+        return normalizeParsedFallbackDb(parsed);
       }
     }
-    const fresh = cloneDefaultFallbackDb();
-    window.localStorage.setItem(
-      PREVIEW_VAULT_STORAGE_KEY,
-      JSON.stringify(fresh)
-    );
-    return fresh;
   } catch {
     // Fallback to in-memory seed if localStorage is restricted
   }
   return cloneDefaultFallbackDb();
 }
 
+let persistDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
 function persistFallbackDb(): void {
   if (typeof window === "undefined" || isTauriRuntime()) return;
-  try {
-    window.localStorage.setItem(
-      PREVIEW_VAULT_STORAGE_KEY,
-      JSON.stringify(fallbackDb)
-    );
-  } catch {
-    // Ignore storage quota errors during 100k benchmark
+  if (persistDebounceTimer) {
+    clearTimeout(persistDebounceTimer);
   }
+  persistDebounceTimer = setTimeout(() => {
+    void indexedDbVault.saveVaultToIndexedDb(fallbackDb);
+  }, 50);
 }
 
 const fallbackDb: FallbackDatabase = loadOrInitializeFallbackDb();
+
+let hydrationPromise: Promise<void> | null = null;
+
+async function ensureFallbackDbHydrated(): Promise<void> {
+  if (typeof window === "undefined" || isTauriRuntime()) return;
+  if (!hydrationPromise) {
+    hydrationPromise = (async () => {
+      const stored = await indexedDbVault.loadVaultFromIndexedDb<FallbackDatabase>();
+      if (
+        stored &&
+        Array.isArray(stored.accounts) &&
+        Array.isArray(stored.categories) &&
+        Array.isArray(stored.entities) &&
+        Array.isArray(stored.transactions)
+      ) {
+        const normalized = normalizeParsedFallbackDb(stored);
+        fallbackDb.vaultStatus = normalized.vaultStatus;
+        fallbackDb.accounts = normalized.accounts;
+        fallbackDb.categories = normalized.categories;
+        fallbackDb.entities = normalized.entities;
+        fallbackDb.rules = Array.isArray(normalized.rules) ? normalized.rules : [];
+        fallbackDb.recurringSchedules = normalized.recurringSchedules;
+        fallbackDb.bankProfiles = normalized.bankProfiles;
+        fallbackDb.transactions = normalized.transactions;
+      } else {
+        await indexedDbVault.saveVaultToIndexedDb(fallbackDb);
+      }
+    })();
+  }
+  return hydrationPromise;
+}
 
 function computeFallbackAccountSummaries(): AccountBalanceSummary[] {
   return fallbackDb.accounts.map((acc) => {
@@ -798,6 +826,7 @@ export const ipc = {
     if (isTauriRuntime()) {
       return invoke("vault_get_status");
     }
+    await ensureFallbackDbHydrated();
     return fallbackDb.vaultStatus;
   },
 
@@ -825,6 +854,7 @@ export const ipc = {
     if (isTauriRuntime()) {
       return invoke("account_list");
     }
+    await ensureFallbackDbHydrated();
     return computeFallbackAccountSummaries();
   },
 
@@ -860,6 +890,7 @@ export const ipc = {
     if (isTauriRuntime()) {
       return invoke("category_list");
     }
+    await ensureFallbackDbHydrated();
     return [...fallbackDb.categories];
   },
 
@@ -908,6 +939,7 @@ export const ipc = {
     if (isTauriRuntime()) {
       return invoke("entity_list");
     }
+    await ensureFallbackDbHydrated();
     return [...fallbackDb.entities];
   },
 
@@ -946,6 +978,7 @@ export const ipc = {
     if (isTauriRuntime()) {
       return invoke("rule_list");
     }
+    await ensureFallbackDbHydrated();
     return [...fallbackDb.rules].sort(
       (a, b) => b.priority_weight - a.priority_weight
     );
@@ -978,6 +1011,7 @@ export const ipc = {
   },
 
   async listRecurringSchedules(): Promise<RecurringSchedule[]> {
+    await ensureFallbackDbHydrated();
     return [...fallbackDb.recurringSchedules].sort(
       (a, b) => a.day_of_month - b.day_of_month
     );
@@ -1223,6 +1257,7 @@ export const ipc = {
       });
     }
 
+    await ensureFallbackDbHydrated();
     const accSet = new Set(params.accountIds);
     const catMap = new Map(fallbackDb.categories.map((c) => [c.id, c]));
     const entMap = new Map(fallbackDb.entities.map((e) => [e.id, e]));
@@ -2244,9 +2279,7 @@ export const ipc = {
 
   async resetPreviewVault(): Promise<void> {
     if (!isTauriRuntime()) {
-      if (typeof window !== "undefined" && window.localStorage) {
-        window.localStorage.removeItem(PREVIEW_VAULT_STORAGE_KEY);
-      }
+      await indexedDbVault.resetVaultInIndexedDb();
       const fresh = cloneDefaultFallbackDb();
       fallbackDb.vaultStatus = fresh.vaultStatus;
       fallbackDb.accounts = fresh.accounts;
@@ -2256,7 +2289,78 @@ export const ipc = {
       fallbackDb.recurringSchedules = fresh.recurringSchedules;
       fallbackDb.bankProfiles = fresh.bankProfiles;
       fallbackDb.transactions = fresh.transactions;
-      persistFallbackDb();
+      await indexedDbVault.saveVaultToIndexedDb(fallbackDb);
     }
+  },
+
+  async getStorageInfo(): Promise<StorageInfo> {
+    if (isTauriRuntime()) {
+      const [accounts, categories, entities, ledger] = await Promise.all([
+        invoke<AccountBalanceSummary[]>("account_list"),
+        invoke<Category[]>("category_list"),
+        invoke<Entity[]>("entity_list"),
+        invoke<LedgerQueryResultDto>("transaction_query", {
+          accountIds: [],
+          limit: 1,
+          offset: 0,
+        }),
+      ]);
+      return {
+        engine: "Tauri SQLCipher (Encrypted SQLite)",
+        isIndexedDbSupported: true,
+        isUsingIndexedDb: false,
+        estimatedBytes: Math.max(65536, ledger.total_count * 420),
+        quotaBytes: 2 * 1024 * 1024 * 1024,
+        accountCount: accounts.length,
+        categoryCount: categories.length,
+        entityCount: entities.length,
+        transactionCount: ledger.total_count,
+      };
+    }
+
+    await ensureFallbackDbHydrated();
+    const serialized = JSON.stringify(fallbackDb);
+    const serializedBytes =
+      typeof Blob !== "undefined"
+        ? new Blob([serialized]).size
+        : serialized.length;
+
+    let browserQuota = 500 * 1024 * 1024;
+    let browserUsage = serializedBytes;
+    if (
+      typeof navigator !== "undefined" &&
+      navigator.storage &&
+      typeof navigator.storage.estimate === "function"
+    ) {
+      try {
+        const est = await navigator.storage.estimate();
+        if (est.quota && est.quota > 0) {
+          browserQuota = Math.min(est.quota, 500 * 1024 * 1024);
+        }
+        if (est.usage && est.usage > 0) {
+          browserUsage = Math.max(
+            serializedBytes,
+            Math.min(est.usage, serializedBytes * 4)
+          );
+        }
+      } catch {
+        // Ignore estimate errors
+      }
+    }
+
+    const usingIdb = indexedDbVault.isUsingIndexedDb();
+    return {
+      engine: usingIdb
+        ? "IndexedDB (500MB+ High Capacity)"
+        : "LocalStorage (Legacy 5MB)",
+      isIndexedDbSupported: indexedDbVault.isSupported(),
+      isUsingIndexedDb: usingIdb,
+      estimatedBytes: browserUsage,
+      quotaBytes: usingIdb ? browserQuota : 5 * 1024 * 1024,
+      accountCount: fallbackDb.accounts.length,
+      categoryCount: fallbackDb.categories.length,
+      entityCount: fallbackDb.entities.length,
+      transactionCount: fallbackDb.transactions.length,
+    };
   },
 };
