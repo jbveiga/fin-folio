@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   FolderTree,
   Building2,
@@ -7,6 +7,7 @@ import {
   Trash2,
   Shield,
   Download,
+  Upload,
   Gauge,
   KeyRound,
   Play,
@@ -534,6 +535,8 @@ export const VaultSettingsView: React.FC = () => {
     rekeyVault,
     run100kBenchmark,
     exportLedger,
+    exportVaultSnapshot,
+    importVaultSnapshot,
     resetPreviewVault,
     setStatusBanner,
   } = useFinFolioStore();
@@ -541,13 +544,70 @@ export const VaultSettingsView: React.FC = () => {
   const [newPassphrase, setNewPassphrase] = useState("");
   const [exportedPreview, setExportedPreview] = useState("");
   const [isBenchmarking, setIsBenchmarking] = useState(false);
+  const restoreInputRef = useRef<HTMLInputElement>(null);
 
-  const handleExport = async (format: "csv" | "json") => {
-    const data = await exportLedger(format);
-    setExportedPreview(data.slice(0, 2000));
-    setStatusBanner(
-      `Generated ${format.toUpperCase()} export (${data.length.toLocaleString()} bytes).`
+  const triggerBrowserDownload = (
+    filename: string,
+    content: string,
+    mimeType: string
+  ) => {
+    if (typeof window === "undefined") return;
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  const handleExportCsv = async () => {
+    const csv = await exportLedger("csv");
+    setExportedPreview(csv.slice(0, 2000));
+    triggerBrowserDownload(
+      `finfolio_transactions_${todayIso}.csv`,
+      csv,
+      "text/csv;charset=utf-8;"
     );
+    setStatusBanner(
+      `✓ Downloaded finfolio_transactions_${todayIso}.csv (${csv.length.toLocaleString()} bytes).`
+    );
+  };
+
+  const handleDownloadVaultBackup = async () => {
+    const json = await exportVaultSnapshot();
+    setExportedPreview(json.slice(0, 2000));
+    triggerBrowserDownload(
+      `finfolio_vault_backup_${todayIso}.json`,
+      json,
+      "application/json;charset=utf-8;"
+    );
+    setStatusBanner(
+      `✓ Downloaded finfolio_vault_backup_${todayIso}.json (${json.length.toLocaleString()} bytes).`
+    );
+  };
+
+  const handleRestoreVaultFile = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      await importVaultSnapshot(text);
+    } catch (err) {
+      setStatusBanner(
+        `Failed to restore vault backup: ${
+          err instanceof Error ? err.message : "Invalid JSON"
+        }`
+      );
+    } finally {
+      e.target.value = "";
+    }
   };
 
   return (
@@ -622,28 +682,82 @@ export const VaultSettingsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Right: Data Portability & Edge Case 4 (100k Benchmark) */}
-      <div className="p-5 rounded-xl bg-neutral-900/60 border border-neutral-800 space-y-4 flex flex-col">
+      {/* Right: Sovereign Data Portability, Vault Backup & 100k Benchmark */}
+      <div className="p-4 md:p-5 rounded-xl bg-neutral-900/60 border border-neutral-800 space-y-4 flex flex-col">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm">
             <Download className="w-4 h-4" />
-            <span>Zero Lock-In Portability & 10-Year Ledger Benchmark</span>
+            <span>Local Data Portability &amp; Sovereign Export</span>
+          </div>
+        </div>
+
+        <p className="text-xs text-neutral-400">
+          Your financial data never leaves your device. Export your filtered
+          ledger to Excel/Numbers CSV or create a complete JSON Vault Snapshot
+          for backup and restore.
+        </p>
+
+        {/* Sovereign Export & Backup Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <div className="p-3 rounded-xl bg-neutral-950/80 border border-neutral-800 space-y-2 flex flex-col justify-between">
+            <div className="space-y-1">
+              <div className="font-semibold text-neutral-100">
+                Export Ledger (CSV)
+              </div>
+              <p className="text-[11px] text-neutral-400">
+                UTF-8 spreadsheet compatible with Excel, Numbers, and Google
+                Sheets.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleExportCsv()}
+              className="w-full px-3 py-2 rounded-lg bg-emerald-500 text-neutral-950 font-semibold hover:bg-emerald-400 flex items-center justify-center gap-1.5"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export CSV (.csv)</span>
+            </button>
+          </div>
+
+          <div className="p-3 rounded-xl bg-neutral-950/80 border border-neutral-800 space-y-2 flex flex-col justify-between">
+            <div className="space-y-1">
+              <div className="font-semibold text-neutral-100">
+                Full Vault Backup (JSON)
+              </div>
+              <p className="text-[11px] text-neutral-400">
+                Complete deterministic snapshot of accounts, categories,
+                entities, rules, and splits.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <button
+                type="button"
+                onClick={() => void handleDownloadVaultBackup()}
+                className="w-full px-3 py-2 rounded-lg bg-neutral-800 text-neutral-100 font-semibold hover:bg-neutral-700 border border-neutral-700 flex items-center justify-center gap-1.5"
+              >
+                <Download className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Download Vault (.json)</span>
+              </button>
+              <input
+                ref={restoreInputRef}
+                type="file"
+                accept=".json,application/json"
+                onChange={(e) => void handleRestoreVaultFile(e)}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => restoreInputRef.current?.click()}
+                className="w-full px-3 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 flex items-center justify-center gap-1.5 text-[11px]"
+              >
+                <Upload className="w-3.5 h-3.5 text-sky-400" />
+                <span>Restore Vault Backup (.json)</span>
+              </button>
+            </div>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <button
-            onClick={() => void handleExport("csv")}
-            className="px-3.5 py-2 rounded-lg bg-emerald-500 text-neutral-950 font-semibold hover:bg-emerald-400"
-          >
-            Export Ledger to CSV
-          </button>
-          <button
-            onClick={() => void handleExport("json")}
-            className="px-3.5 py-2 rounded-lg bg-neutral-800 text-neutral-100 font-semibold hover:bg-neutral-700 border border-neutral-700"
-          >
-            Export Ledger to JSON
-          </button>
           <button
             disabled={isBenchmarking}
             onClick={async () => {

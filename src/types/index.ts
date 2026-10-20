@@ -2,6 +2,7 @@ export type Cents = number; // Integer minor units (cents) — strictly zero-flo
 
 export type ActiveView =
   | "ledger"
+  | "analytics"
   | "staging"
   | "taxonomy"
   | "rules"

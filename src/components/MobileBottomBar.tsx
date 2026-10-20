@@ -1,6 +1,7 @@
 import React from "react";
 import {
   BookOpen,
+  BarChart3,
   Wallet,
   Plus,
   FolderTree,
@@ -31,7 +32,7 @@ export const MobileBottomBar: React.FC<MobileBottomBarProps> = ({
       aria-label="Mobile Bottom Navigation"
       className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-neutral-950/95 backdrop-blur-md border-t border-neutral-800 pb-[env(safe-area-inset-bottom)] select-none"
     >
-      <div className="h-14 grid grid-cols-5 items-center px-2">
+      <div className="h-14 grid grid-cols-6 items-center px-1">
         {/* Slot 1: Ledger */}
         <button
           type="button"
@@ -46,7 +47,21 @@ export const MobileBottomBar: React.FC<MobileBottomBarProps> = ({
           <span>Ledger</span>
         </button>
 
-        {/* Slot 2: Accounts Drawer Trigger */}
+        {/* Slot 2: Analytics */}
+        <button
+          type="button"
+          onClick={() => handleNav("analytics")}
+          className={`flex flex-col items-center justify-center h-full gap-0.5 text-[10px] font-medium transition-colors ${
+            activeView === "analytics" && !isAccountDrawerOpen
+              ? "text-emerald-400"
+              : "text-neutral-400 active:text-neutral-200"
+          }`}
+        >
+          <BarChart3 className="w-4 h-4" />
+          <span>Analytics</span>
+        </button>
+
+        {/* Slot 3: Accounts Drawer Trigger */}
         <button
           type="button"
           onClick={onOpenAccounts}
@@ -67,7 +82,7 @@ export const MobileBottomBar: React.FC<MobileBottomBarProps> = ({
           <span>Accounts</span>
         </button>
 
-        {/* Slot 3: Center Quick Add FAB (+) */}
+        {/* Slot 4: Quick Add FAB (+) */}
         <div className="flex flex-col items-center justify-center h-full">
           <button
             type="button"
@@ -79,7 +94,7 @@ export const MobileBottomBar: React.FC<MobileBottomBarProps> = ({
           </button>
         </div>
 
-        {/* Slot 4: Categories & Entities */}
+        {/* Slot 5: Categories & Entities */}
         <button
           type="button"
           onClick={() => handleNav("taxonomy")}
@@ -93,7 +108,7 @@ export const MobileBottomBar: React.FC<MobileBottomBarProps> = ({
           <span>Categories</span>
         </button>
 
-        {/* Slot 5: Settings & Vault */}
+        {/* Slot 6: Settings & Vault */}
         <button
           type="button"
           onClick={() => handleNav("settings")}
@@ -107,7 +122,7 @@ export const MobileBottomBar: React.FC<MobileBottomBarProps> = ({
           }`}
         >
           <Settings className="w-4 h-4" />
-          <span>Settings</span>
+          <span>Vault</span>
         </button>
       </div>
     </nav>

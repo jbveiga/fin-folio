@@ -112,6 +112,8 @@ interface FinFolioState {
   rekeyVault: (newPassphrase: string | null) => Promise<void>;
   run100kBenchmark: (count?: number) => Promise<void>;
   exportLedger: (format: "csv" | "json") => Promise<string>;
+  exportVaultSnapshot: () => Promise<string>;
+  importVaultSnapshot: (jsonString: string) => Promise<void>;
   resetPreviewVault: () => Promise<void>;
 }
 
@@ -508,6 +510,18 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
 
   exportLedger: async (format) => {
     return ipc.exportData(format, get().selectedAccountIds);
+  },
+
+  exportVaultSnapshot: async () => {
+    return ipc.exportVaultSnapshot();
+  },
+
+  importVaultSnapshot: async (jsonString) => {
+    await ipc.importVaultSnapshot(jsonString);
+    await get().initializeWorkspace();
+    get().setStatusBanner(
+      "✓ Vault snapshot restored successfully from JSON backup."
+    );
   },
 
   resetPreviewVault: async () => {

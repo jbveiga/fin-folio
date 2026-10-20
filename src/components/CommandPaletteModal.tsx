@@ -26,6 +26,11 @@ export const CommandPaletteModal: React.FC = () => {
       run: () => setActiveView("ledger"),
     },
     {
+      label: "Open Cash Flow & Category Analytics Dashboard",
+      shortcut: "Analytics",
+      run: () => setActiveView("analytics"),
+    },
+    {
       label: "Open Statement Import Staging Grid",
       shortcut: "⌘I",
       run: () => {

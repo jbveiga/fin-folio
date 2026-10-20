@@ -1175,13 +1175,126 @@ export const ipc = {
     if (format === "json") {
       return JSON.stringify(res.transactions, null, 2);
     }
+
+    const accMap = new Map(fallbackDb.accounts.map((a) => [a.id, a.name]));
+    const entMap = new Map(
+      fallbackDb.entities.map((e) => [e.id, e.normalized_name])
+    );
+    const catMap = new Map(fallbackDb.categories.map((c) => [c.id, c.name]));
+
+    const formatCentsDecimal = (cents: number): string => {
+      const v = BigInt(Math.trunc(cents || 0));
+      const neg = v < 0n;
+      const abs = neg ? -v : v;
+      const major = abs / 100n;
+      const minor = (abs % 100n).toString().padStart(2, "0");
+      return `${neg ? "-" : ""}${major.toString()}.${minor}`;
+    };
+
+    const escapeCsv = (val: string): string =>
+      `"${(val || "").replace(/"/g, '""')}"`;
+
     const header =
-      "id;account_id;date_posted;clean_description;raw_bank_string;total_amount_cents;is_reconciled\n";
+      "\uFEFFDate,Account,Entity,Category,Description,Notes,Amount_EUR,Amount_Cents,Reconciled\n";
     const lines = res.transactions.map((t) => {
       const tx = t.transaction;
-      return `${tx.id};${tx.account_id};${tx.date_posted};"${tx.clean_description}";"${tx.raw_bank_string}";${tx.total_amount_cents};${tx.is_reconciled}`;
+      const sp = t.splits[0];
+      const accName = accMap.get(tx.account_id) || tx.account_id;
+      const entName = tx.entity_id ? entMap.get(tx.entity_id) || "" : "";
+      const catName =
+        t.splits.length > 1
+          ? `Split (${t.splits.length})`
+          : sp?.transfer_peer_account_id
+          ? `Transfer -> ${
+              accMap.get(sp.transfer_peer_account_id) ||
+              sp.transfer_peer_account_id
+            }`
+          : sp?.category_id
+          ? catMap.get(sp.category_id) || ""
+          : "Uncategorized";
+      const notes = sp?.notes || "";
+      return [
+        tx.date_posted,
+        escapeCsv(accName),
+        escapeCsv(entName),
+        escapeCsv(catName),
+        escapeCsv(tx.clean_description),
+        escapeCsv(notes),
+        formatCentsDecimal(tx.total_amount_cents),
+        String(tx.total_amount_cents),
+        tx.is_reconciled ? "true" : "false",
+      ].join(",");
     });
     return header + lines.join("\n");
+  },
+
+  async exportVaultSnapshot(): Promise<string> {
+    if (isTauriRuntime()) {
+      const [vaultStatus, accountSummaries, categories, entities, rules, ledger] =
+        await Promise.all([
+          this.getVaultStatus(),
+          this.listAccounts(),
+          this.listCategories(),
+          this.listEntities(),
+          this.listRules(),
+          this.queryLedger({
+            accountIds: (await this.listAccounts()).map((s) => s.account.id),
+            limit: 250_000,
+          }),
+        ]);
+      return JSON.stringify(
+        {
+          schema_version: 2,
+          exported_at: new Date().toISOString(),
+          vaultStatus,
+          accounts: accountSummaries.map((s) => s.account),
+          categories,
+          entities,
+          rules,
+          transactions: ledger.transactions,
+        },
+        null,
+        2
+      );
+    }
+
+    return JSON.stringify(
+      {
+        schema_version: 2,
+        exported_at: new Date().toISOString(),
+        vaultStatus: fallbackDb.vaultStatus,
+        accounts: fallbackDb.accounts,
+        categories: fallbackDb.categories,
+        entities: fallbackDb.entities,
+        rules: fallbackDb.rules,
+        transactions: fallbackDb.transactions,
+      },
+      null,
+      2
+    );
+  },
+
+  async importVaultSnapshot(jsonString: string): Promise<void> {
+    const parsed = JSON.parse(jsonString) as Partial<FallbackDatabase>;
+    if (
+      !parsed ||
+      !Array.isArray(parsed.accounts) ||
+      !Array.isArray(parsed.categories) ||
+      !Array.isArray(parsed.entities) ||
+      !Array.isArray(parsed.transactions)
+    ) {
+      throw new Error(
+        "Invalid FinFolio vault backup file: missing accounts, categories, entities, or transactions arrays."
+      );
+    }
+
+    fallbackDb.vaultStatus = parsed.vaultStatus || fallbackDb.vaultStatus;
+    fallbackDb.accounts = parsed.accounts;
+    fallbackDb.categories = parsed.categories;
+    fallbackDb.entities = parsed.entities;
+    fallbackDb.rules = Array.isArray(parsed.rules) ? parsed.rules : [];
+    fallbackDb.transactions = parsed.transactions;
+    persistFallbackDb();
   },
 
   async resetPreviewVault(): Promise<void> {
