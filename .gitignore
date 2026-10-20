@@ -21,3 +21,7 @@ src-tauri/gen/schemas/
 .env
 .env.*
 *.log
+
+# Internal Agent Roles & Metadata (Orchestrator)
+.chat-roles.json
+.chat-roles.md
