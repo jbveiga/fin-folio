@@ -180,6 +180,23 @@ export interface BankProfile {
   credit_col_idx: number | null;
   indicator_col_idx: number | null;
   decimal_separator: string;
+  delimiter?: string;
+  header_row_idx?: number;
+  balance_col_idx?: number | null;
+}
+
+export interface BankProfilePreset {
+  id: string;
+  name: string;
+  delimiter: string;
+  decimalSeparator: "," | ".";
+  strategy: "SingleSigned" | "DebitCreditSplit";
+  dateColIdx: number;
+  descColIdx: number;
+  amountColIdx?: number;
+  debitColIdx?: number;
+  creditColIdx?: number;
+  balanceColIdx?: number;
 }
 
 export type StagingStatus =
@@ -215,6 +232,10 @@ export interface ParseStatementResultDto {
   all_raw_rows: string[][];
   detected_columns: string[];
   staged_rows: StagedTransactionRowDto[];
+  detected_delimiter?: string;
+  detected_header_row_idx?: number;
+  detected_decimal_separator?: string;
+  applied_profile?: BankProfile | null;
 }
 
 export interface LedgerQueryResultDto {

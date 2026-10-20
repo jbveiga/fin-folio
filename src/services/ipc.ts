@@ -3,6 +3,7 @@ import {
   Account,
   AccountBalanceSummary,
   BankProfile,
+  BankProfilePreset,
   Category,
   Entity,
   ImportRule,
@@ -15,6 +16,86 @@ import {
   VaultStatus,
 } from "../types";
 import { parseCentsInput } from "../utils/money";
+
+export const BUILTIN_BANK_PRESETS: BankProfilePreset[] = [
+  {
+    id: "cgd_split",
+    name: "CGD (Débito / Crédito)",
+    delimiter: ";",
+    decimalSeparator: ",",
+    strategy: "DebitCreditSplit",
+    dateColIdx: 0,
+    descColIdx: 2,
+    debitColIdx: 3,
+    creditColIdx: 4,
+    balanceColIdx: 5,
+  },
+  {
+    id: "cgd_single",
+    name: "CGD (Montante Único)",
+    delimiter: ";",
+    decimalSeparator: ",",
+    strategy: "SingleSigned",
+    dateColIdx: 0,
+    descColIdx: 2,
+    amountColIdx: 3,
+    balanceColIdx: 4,
+  },
+  {
+    id: "millennium_bcp",
+    name: "Millennium bcp",
+    delimiter: ";",
+    decimalSeparator: ",",
+    strategy: "SingleSigned",
+    dateColIdx: 0,
+    descColIdx: 2,
+    amountColIdx: 3,
+    balanceColIdx: 5,
+  },
+  {
+    id: "santander_totta",
+    name: "Santander Totta",
+    delimiter: ";",
+    decimalSeparator: ",",
+    strategy: "SingleSigned",
+    dateColIdx: 0,
+    descColIdx: 2,
+    amountColIdx: 3,
+    balanceColIdx: 4,
+  },
+  {
+    id: "activobank",
+    name: "ActivoBank",
+    delimiter: ";",
+    decimalSeparator: ",",
+    strategy: "SingleSigned",
+    dateColIdx: 0,
+    descColIdx: 2,
+    amountColIdx: 3,
+    balanceColIdx: 4,
+  },
+  {
+    id: "revolut",
+    name: "Revolut",
+    delimiter: ",",
+    decimalSeparator: ".",
+    strategy: "SingleSigned",
+    dateColIdx: 2,
+    descColIdx: 4,
+    amountColIdx: 5,
+    balanceColIdx: 9,
+  },
+  {
+    id: "n26",
+    name: "N26",
+    delimiter: ",",
+    decimalSeparator: ".",
+    strategy: "SingleSigned",
+    dateColIdx: 0,
+    descColIdx: 1,
+    amountColIdx: 5,
+  },
+];
 
 function isTauriRuntime(): boolean {
   return (
@@ -34,6 +115,7 @@ interface FallbackDatabase {
   entities: Entity[];
   rules: ImportRule[];
   recurringSchedules: RecurringSchedule[];
+  bankProfiles: BankProfile[];
   transactions: TransactionWithSplits[];
 }
 
@@ -375,6 +457,7 @@ const defaultFallbackDb: FallbackDatabase = {
       notes: "Subscrições mensais streaming",
     },
   ],
+  bankProfiles: [],
   transactions: [
     {
       transaction: {
@@ -595,6 +678,9 @@ function loadOrInitializeFallbackDb(): FallbackDatabase {
         }));
         if (!Array.isArray(parsed.recurringSchedules)) {
           parsed.recurringSchedules = cloneDefaultFallbackDb().recurringSchedules;
+        }
+        if (!Array.isArray(parsed.bankProfiles)) {
+          parsed.bankProfiles = [];
         }
         const recurringSeedIds = new Set(["tx_1", "tx_6", "tx_7"]);
         parsed.transactions = parsed.transactions.map((item) => ({
@@ -1505,21 +1591,270 @@ export const ipc = {
       });
     }
 
-    // Fallback browser parser for CSV/TSV
+    // -------------------------------------------------------------------------
+    // Stage 1–6 Deterministic Browser Ingestion Engine
+    // -------------------------------------------------------------------------
     const decoder = new TextDecoder("utf-8", { fatal: false });
     const text = decoder.decode(new Uint8Array(params.rawBytes));
     const lines = text
       .split(/\r?\n/)
       .map((l) => l.trim())
       .filter(Boolean);
-    const delim = lines[0]?.includes(";")
-      ? ";"
-      : lines[0]?.includes("\t")
-      ? "\t"
-      : ",";
-    const rows = lines.map((l) => l.split(delim).map((c) => c.trim()));
-    const headerRow = rows[0] || [];
-    const dataRows = rows.slice(1);
+
+    if (lines.length === 0) {
+      return {
+        header_matched: false,
+        profile_name: null,
+        header_signature_hash: "sig_empty",
+        needs_column_mapping: true,
+        raw_sample_rows: [],
+        all_raw_rows: [],
+        detected_columns: [],
+        staged_rows: [],
+      };
+    }
+
+    // Stage 2.1: Preamble Discard & Header Row Detection
+    const headerKeywords = [
+      "data",
+      "date",
+      "movimento",
+      "mov",
+      "lançamento",
+      "lancamento",
+      "lanc",
+      "descri",
+      "description",
+      "montante",
+      "valor",
+      "débito",
+      "debito",
+      "crédito",
+      "credito",
+      "amount",
+      "saldo",
+      "balance",
+      "started",
+      "completed",
+      "payee",
+    ];
+
+    let headerRowIdx = 0;
+    if (
+      params.explicitProfile &&
+      typeof params.explicitProfile.header_row_idx === "number" &&
+      params.explicitProfile.header_row_idx >= 0 &&
+      params.explicitProfile.header_row_idx < lines.length
+    ) {
+      headerRowIdx = params.explicitProfile.header_row_idx;
+    } else {
+      const maxScan = Math.min(16, lines.length);
+      for (let idx = 0; idx < maxScan; idx++) {
+        const lower = lines[idx].toLowerCase();
+        let hits = 0;
+        for (const kw of headerKeywords) {
+          if (lower.includes(kw)) hits++;
+        }
+        if (hits >= 2) {
+          headerRowIdx = idx;
+          break;
+        }
+      }
+    }
+
+    // Stage 2.2: Delimiter Detection
+    const headerLine = lines[headerRowIdx] || lines[0] || "";
+    const countChar = (s: string, ch: string) => s.split(ch).length - 1;
+    let delim = ";";
+    if (params.explicitProfile?.delimiter) {
+      delim = params.explicitProfile.delimiter;
+    } else {
+      const candidates = [";", "\t", ",", "|"];
+      let bestCount = -1;
+      for (const cand of candidates) {
+        const c = countChar(headerLine, cand);
+        if (c > bestCount) {
+          bestCount = c;
+          delim = cand;
+        }
+      }
+    }
+
+    const tokenizeCsvRow = (line: string, delimiter: string): string[] => {
+      return line
+        .split(delimiter)
+        .map((cell) => cell.trim().replace(/^"(.*)"$/, "$1").trim());
+    };
+
+    const allParsedRows = lines.map((l) => tokenizeCsvRow(l, delim));
+    const headerRow = allParsedRows[headerRowIdx] || [];
+    const dataRows = allParsedRows
+      .slice(headerRowIdx + 1)
+      .filter((r) => r.some((cell) => cell.length > 0));
+
+    // Compute normalized header signature hash
+    const normalizedSig = headerRow
+      .map((h) => h.toLowerCase().replace(/[^a-z0-9]/g, ""))
+      .join("_");
+    const headerSignatureHash = `sig_${delim === "\t" ? "tab" : delim}_${normalizedSig}`;
+
+    // Stage 2.3: Date & Zero-Float Monetary Parsers
+    const ptMonthMap: Record<string, string> = {
+      jan: "01",
+      fev: "02",
+      mar: "03",
+      abr: "04",
+      mai: "05",
+      jun: "06",
+      jul: "07",
+      ago: "08",
+      set: "09",
+      out: "10",
+      nov: "11",
+      dez: "12",
+      oct: "10",
+      dec: "12",
+      may: "05",
+      feb: "02",
+      apr: "04",
+      aug: "08",
+      sep: "09",
+    };
+
+    const normalizeDateStr = (raw: string): string => {
+      const trimmed = (raw || "").trim().replace(/^"(.*)"$/, "$1").trim();
+      if (!trimmed) return "2026-10-20";
+      // YYYY-MM-DD or YYYY-MM-DD HH:MM:SS (e.g. Revolut)
+      const isoMatch = trimmed.match(/^(\d{4})[-/.](\d{2})[-/.](\d{2})/);
+      if (isoMatch) {
+        return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+      }
+      // DD-MM-YYYY or DD/MM/YYYY or DD.MM.YYYY
+      const dmyMatch = trimmed.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+      if (dmyMatch) {
+        return `${dmyMatch[3]}-${dmyMatch[2].padStart(2, "0")}-${dmyMatch[1].padStart(2, "0")}`;
+      }
+      // Textual Portuguese/English month: "20 Out 2026" or "20-Out-2026"
+      const txtMatch = trimmed.match(
+        /^(\d{1,2})[\s-/.]+([A-Za-zçÇ]{3,})[\s-/.]+(\d{4})/
+      );
+      if (txtMatch) {
+        const mKey = txtMatch[2].slice(0, 3).toLowerCase();
+        const mm = ptMonthMap[mKey] || "10";
+        return `${txtMatch[3]}-${mm}-${txtMatch[1].padStart(2, "0")}`;
+      }
+      return trimmed.slice(0, 10);
+    };
+
+    const parseAmountWithSeparator = (
+      raw: string,
+      decimalSep: string
+    ): number => {
+      const cleaned = (raw || "")
+        .replace(/[€$£\sA-Za-z]/g, "")
+        .replace(/^"(.*)"$/, "$1")
+        .trim();
+      if (!cleaned) return 0;
+      if (decimalSep === ".") {
+        // Anglo format: strip thousand commas, convert decimal dot to comma for parseCentsInput
+        const normalized = cleaned.replace(/,/g, "").replace(".", ",");
+        return parseCentsInput(normalized);
+      }
+      // European format: parseCentsInput natively strips dots and uses comma as decimal
+      return parseCentsInput(cleaned);
+    };
+
+    // Stage 3: Resolve BankProfile (Explicit -> Saved Custom -> Auto-Heuristic)
+    let activeProfile: BankProfile | null =
+      params.explicitProfile ||
+      fallbackDb.bankProfiles.find(
+        (p) => p.header_signature_hash === headerSignatureHash
+      ) ||
+      null;
+
+    if (!activeProfile && headerRow.length >= 3) {
+      const lowerCols = headerRow.map((c) => c.toLowerCase());
+      const findIdx = (patterns: string[]) =>
+        lowerCols.findIndex((c) => patterns.some((p) => c.includes(p)));
+
+      const dateIdx = findIdx([
+        "started date",
+        "data mov",
+        "data lanc",
+        "data valor",
+        "data",
+        "date",
+      ]);
+      const descIdx = findIdx([
+        "descri",
+        "description",
+        "movimento",
+        "histórico",
+        "historico",
+        "payee",
+      ]);
+      const debitIdx = findIdx(["débito", "debito", "debit"]);
+      const creditIdx = findIdx(["crédito", "credito", "credit"]);
+      const amountIdx = findIdx(["montante", "valor", "amount", "importância"]);
+      const balanceIdx = findIdx(["saldo", "balance"]);
+
+      if (
+        dateIdx >= 0 &&
+        descIdx >= 0 &&
+        (amountIdx >= 0 || (debitIdx >= 0 && creditIdx >= 0))
+      ) {
+        const isRevolutOrAnglo =
+          delim === "," &&
+          (lowerCols.some((c) => c.includes("started date")) ||
+            lowerCols.some((c) => c.includes("payee")));
+        const isSplit = debitIdx >= 0 && creditIdx >= 0;
+
+        let detectedName = "Auto-Detected Portuguese Statement";
+        if (isRevolutOrAnglo && lowerCols.some((c) => c.includes("started date"))) {
+          detectedName = "Revolut";
+        } else if (isRevolutOrAnglo && lowerCols.some((c) => c.includes("payee"))) {
+          detectedName = "N26";
+        } else if (isSplit && lowerCols.some((c) => c.includes("saldo contabil"))) {
+          detectedName = "CGD (Débito / Crédito)";
+        } else if (lowerCols.some((c) => c.includes("data lanc"))) {
+          detectedName = "Millennium bcp / ActivoBank";
+        }
+
+        activeProfile = {
+          id: "auto_profile",
+          profile_name: detectedName,
+          header_signature_hash: headerSignatureHash,
+          date_col_idx: dateIdx,
+          desc_col_idx: descIdx,
+          amount_strategy: isSplit ? "DebitCreditSplit" : "SingleSigned",
+          amount_col_idx: isSplit ? null : amountIdx,
+          debit_col_idx: isSplit ? debitIdx : null,
+          credit_col_idx: isSplit ? creditIdx : null,
+          indicator_col_idx: null,
+          decimal_separator: isRevolutOrAnglo ? "." : ",",
+          delimiter: delim,
+          header_row_idx: headerRowIdx,
+          balance_col_idx: balanceIdx >= 0 ? balanceIdx : null,
+        };
+      }
+    }
+
+    if (!activeProfile) {
+      return {
+        header_matched: false,
+        profile_name: null,
+        header_signature_hash: headerSignatureHash,
+        needs_column_mapping: true,
+        raw_sample_rows: dataRows.slice(0, 5),
+        all_raw_rows: allParsedRows,
+        detected_columns: headerRow,
+        staged_rows: [],
+        detected_delimiter: delim,
+        detected_header_row_idx: headerRowIdx,
+        detected_decimal_separator: delim === "," ? "." : ",",
+        applied_profile: null,
+      };
+    }
 
     const seqMap = new Map<string, number>();
     const existingHashes = new Set(
@@ -1528,18 +1863,33 @@ export const ipc = {
         .map((t) => t.transaction.dedup_hash)
     );
 
+    const decSep = activeProfile.decimal_separator || ",";
+
     const stagedRows: StagedTransactionRowDto[] = dataRows
-      .filter((r) => r.length >= 3)
+      .filter((r) => r.length >= 2)
       .map((r, i) => {
-        const rawDate = r[0];
-        const parts = rawDate.split(/[-/.]/);
-        const isoDate =
-          parts.length === 3 && parts[0].length === 2
-            ? `${parts[2]}-${parts[1]}-${parts[0]}`
-            : rawDate;
-        const rawDesc = r[2] || r[1] || "";
-        const rawAmt = r[3] || r[2] || "0";
-        const amountCents = parseCentsInput(rawAmt);
+        const rawDate = r[activeProfile!.date_col_idx] || r[0] || "";
+        const isoDate = normalizeDateStr(rawDate);
+        const rawDesc =
+          r[activeProfile!.desc_col_idx] || r[1] || r[0] || "Movimento";
+
+        let amountCents = 0;
+        if (
+          activeProfile!.amount_strategy === "DebitCreditSplit" &&
+          activeProfile!.debit_col_idx !== null &&
+          activeProfile!.credit_col_idx !== null
+        ) {
+          const debRaw = r[activeProfile!.debit_col_idx] || "";
+          const credRaw = r[activeProfile!.credit_col_idx] || "";
+          const debCents = Math.abs(parseAmountWithSeparator(debRaw, decSep));
+          const credCents = Math.abs(parseAmountWithSeparator(credRaw, decSep));
+          amountCents = credCents > 0 ? credCents : -debCents;
+        } else {
+          const amtCol = activeProfile!.amount_col_idx ?? 2;
+          const rawAmt = r[amtCol] || "0";
+          amountCents = parseAmountWithSeparator(rawAmt, decSep);
+        }
+
         const { scrubbedRaw, clean } = scrubPiiFallback(rawDesc);
 
         const seqKey = `${isoDate}|${amountCents}|${scrubbedRaw.toUpperCase()}`;
@@ -1566,7 +1916,9 @@ export const ipc = {
         }
 
         const ent = matchedRule?.assigned_entity_id
-          ? fallbackDb.entities.find((e) => e.id === matchedRule?.assigned_entity_id)
+          ? fallbackDb.entities.find(
+              (e) => e.id === matchedRule?.assigned_entity_id
+            )
           : undefined;
         const catId =
           matchedRule?.assigned_category_id || ent?.default_category_id || null;
@@ -1599,13 +1951,17 @@ export const ipc = {
 
     return {
       header_matched: true,
-      profile_name: "Auto-Detected Portuguese Statement",
-      header_signature_hash: "sig_auto",
+      profile_name: activeProfile.profile_name,
+      header_signature_hash: headerSignatureHash,
       needs_column_mapping: false,
       raw_sample_rows: dataRows.slice(0, 5),
-      all_raw_rows: dataRows,
+      all_raw_rows: allParsedRows,
       detected_columns: headerRow,
       staged_rows: stagedRows,
+      detected_delimiter: delim,
+      detected_header_row_idx: headerRowIdx,
+      detected_decimal_separator: decSep,
+      applied_profile: activeProfile,
     };
   },
 
@@ -1669,6 +2025,21 @@ export const ipc = {
     if (isTauriRuntime()) {
       return invoke("bank_profile_save", { profile });
     }
+    const existingIdx = fallbackDb.bankProfiles.findIndex(
+      (p) =>
+        p.id === profile.id ||
+        p.header_signature_hash === profile.header_signature_hash
+    );
+    if (existingIdx >= 0) {
+      fallbackDb.bankProfiles[existingIdx] = profile;
+    } else {
+      fallbackDb.bankProfiles.push(profile);
+    }
+    persistFallbackDb();
+  },
+
+  async listBankProfiles(): Promise<BankProfile[]> {
+    return [...fallbackDb.bankProfiles];
   },
 
   async seedBenchmark(count: number): Promise<string> {
@@ -1828,6 +2199,7 @@ export const ipc = {
         entities: fallbackDb.entities,
         rules: fallbackDb.rules,
         recurringSchedules: fallbackDb.recurringSchedules,
+        bankProfiles: fallbackDb.bankProfiles,
         transactions: fallbackDb.transactions,
       },
       null,
@@ -1857,6 +2229,9 @@ export const ipc = {
     fallbackDb.recurringSchedules = Array.isArray(parsed.recurringSchedules)
       ? parsed.recurringSchedules
       : cloneDefaultFallbackDb().recurringSchedules;
+    fallbackDb.bankProfiles = Array.isArray(parsed.bankProfiles)
+      ? parsed.bankProfiles
+      : [];
     fallbackDb.transactions = parsed.transactions;
     persistFallbackDb();
   },
@@ -1873,6 +2248,7 @@ export const ipc = {
       fallbackDb.entities = fresh.entities;
       fallbackDb.rules = fresh.rules;
       fallbackDb.recurringSchedules = fresh.recurringSchedules;
+      fallbackDb.bankProfiles = fresh.bankProfiles;
       fallbackDb.transactions = fresh.transactions;
       persistFallbackDb();
     }
