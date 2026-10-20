@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Production build output
+dist/
+dist-ssr/
+
+# Rust / Tauri build artifacts
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# FinFolio vault files
+*.finfolio
+*.finfolio-wal
+*.finfolio-shm
+*.finfolio.bak
+*.finfolio.rekey_tmp
+
+# OS & Environment files
+.DS_Store
+.env
+.env.*
+*.log
