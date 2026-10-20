@@ -684,6 +684,14 @@ export const ipc = {
     fallbackDb.categories = fallbackDb.categories.filter(
       (c) => c.id !== id && c.parent_id !== id
     );
+    fallbackDb.entities = fallbackDb.entities.map((e) =>
+      e.default_category_id === id ? { ...e, default_category_id: null } : e
+    );
+    for (const item of fallbackDb.transactions) {
+      item.splits = item.splits.map((sp) =>
+        sp.category_id === id ? { ...sp, category_id: null } : sp
+      );
+    }
     persistFallbackDb();
   },
 
@@ -926,6 +934,171 @@ export const ipc = {
       return target.transaction.is_reconciled;
     }
     return false;
+  },
+
+  async batchAssignCategory(
+    txIds: string[],
+    categoryId: string | null
+  ): Promise<void> {
+    const idSet = new Set(txIds);
+    if (isTauriRuntime()) {
+      const allAccs = await this.listAccounts();
+      const ledger = await this.queryLedger({
+        accountIds: allAccs.map((a) => a.account.id),
+        limit: 250_000,
+      });
+      for (const item of ledger.transactions) {
+        if (!idSet.has(item.transaction.id)) continue;
+        await this.saveTransaction({
+          id: item.transaction.id,
+          account_id: item.transaction.account_id,
+          entity_id: item.transaction.entity_id,
+          entity_name: null,
+          date_posted: item.transaction.date_posted,
+          total_amount_cents: item.transaction.total_amount_cents,
+          raw_bank_string: item.transaction.raw_bank_string,
+          clean_description: item.transaction.clean_description,
+          is_reconciled: item.transaction.is_reconciled,
+          splits: item.splits.map((s, idx) =>
+            idx === 0 || !s.transfer_peer_account_id
+              ? {
+                  category_id: categoryId,
+                  transfer_peer_account_id: null,
+                  split_amount_cents: s.split_amount_cents,
+                  notes: s.notes,
+                }
+              : {
+                  category_id: s.category_id,
+                  transfer_peer_account_id: s.transfer_peer_account_id,
+                  split_amount_cents: s.split_amount_cents,
+                  notes: s.notes,
+                }
+          ),
+        });
+      }
+      return;
+    }
+
+    for (const item of fallbackDb.transactions) {
+      if (!idSet.has(item.transaction.id)) continue;
+      item.splits = item.splits.map((s, idx) =>
+        idx === 0 || !s.transfer_peer_account_id
+          ? {
+              ...s,
+              category_id: categoryId,
+              transfer_peer_account_id: null,
+            }
+          : s
+      );
+    }
+    persistFallbackDb();
+  },
+
+  async batchAssignEntity(
+    txIds: string[],
+    entityId: string | null
+  ): Promise<void> {
+    const idSet = new Set(txIds);
+    if (isTauriRuntime()) {
+      const [allAccs, entities] = await Promise.all([
+        this.listAccounts(),
+        this.listEntities(),
+      ]);
+      const matchedEnt = entityId
+        ? entities.find((e) => e.id === entityId)
+        : undefined;
+      const ledger = await this.queryLedger({
+        accountIds: allAccs.map((a) => a.account.id),
+        limit: 250_000,
+      });
+      for (const item of ledger.transactions) {
+        if (!idSet.has(item.transaction.id)) continue;
+        await this.saveTransaction({
+          id: item.transaction.id,
+          account_id: item.transaction.account_id,
+          entity_id: entityId,
+          entity_name: null,
+          date_posted: item.transaction.date_posted,
+          total_amount_cents: item.transaction.total_amount_cents,
+          raw_bank_string: item.transaction.raw_bank_string,
+          clean_description: item.transaction.clean_description,
+          is_reconciled: item.transaction.is_reconciled,
+          splits: item.splits.map((s) => ({
+            category_id:
+              !s.category_id &&
+              !s.transfer_peer_account_id &&
+              matchedEnt?.default_category_id
+                ? matchedEnt.default_category_id
+                : s.category_id,
+            transfer_peer_account_id: s.transfer_peer_account_id,
+            split_amount_cents: s.split_amount_cents,
+            notes: s.notes,
+          })),
+        });
+      }
+      return;
+    }
+
+    const matchedEnt = entityId
+      ? fallbackDb.entities.find((e) => e.id === entityId)
+      : undefined;
+    for (const item of fallbackDb.transactions) {
+      if (!idSet.has(item.transaction.id)) continue;
+      item.transaction.entity_id = entityId;
+      if (matchedEnt?.default_category_id) {
+        item.splits = item.splits.map((s) =>
+          !s.category_id && !s.transfer_peer_account_id
+            ? { ...s, category_id: matchedEnt.default_category_id }
+            : s
+        );
+      }
+    }
+    persistFallbackDb();
+  },
+
+  async batchToggleReconciled(
+    txIds: string[],
+    reconciled: boolean
+  ): Promise<void> {
+    const idSet = new Set(txIds);
+    if (isTauriRuntime()) {
+      const allAccs = await this.listAccounts();
+      const ledger = await this.queryLedger({
+        accountIds: allAccs.map((a) => a.account.id),
+        limit: 250_000,
+      });
+      for (const item of ledger.transactions) {
+        if (
+          idSet.has(item.transaction.id) &&
+          item.transaction.is_reconciled !== reconciled
+        ) {
+          await this.toggleReconciled(item.transaction.id);
+        }
+      }
+      return;
+    }
+
+    for (const item of fallbackDb.transactions) {
+      if (idSet.has(item.transaction.id)) {
+        item.transaction.is_reconciled = reconciled;
+      }
+    }
+    persistFallbackDb();
+  },
+
+  async batchDeleteTransactions(txIds: string[]): Promise<void> {
+    const idSet = new Set(txIds);
+    if (isTauriRuntime()) {
+      for (const id of txIds) {
+        await this.deleteTransaction(id);
+      }
+      return;
+    }
+
+    fallbackDb.transactions = fallbackDb.transactions.filter(
+      (t) => !idSet.has(t.transaction.id)
+    );
+    persistFallbackDb();
   },
 
   async parseStatement(params: {

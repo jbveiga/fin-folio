@@ -4,6 +4,9 @@ import {
   Building2,
   Sparkles,
   Plus,
+  Pencil,
+  Check,
+  X,
   Trash2,
   Shield,
   Download,
@@ -14,7 +17,22 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { useFinFolioStore } from "../stores/useFinFolioStore";
-import { CategoryDirection, MatchMode } from "../types";
+import { Category, CategoryDirection, Entity, MatchMode } from "../types";
+
+const CURATED_SWATCHES = [
+  "#10b981", // Emerald
+  "#14b8a6", // Teal
+  "#06b6d4", // Cyan
+  "#0ea5e9", // Sky
+  "#6366f1", // Indigo
+  "#8b5cf6", // Violet
+  "#a855f7", // Purple
+  "#ec4899", // Pink
+  "#f43f5e", // Rose
+  "#f97316", // Orange
+  "#f59e0b", // Amber
+  "#64748b", // Slate
+];
 
 export const TaxonomyView: React.FC = () => {
   const {
@@ -24,42 +42,99 @@ export const TaxonomyView: React.FC = () => {
     deleteCategory,
     saveEntity,
     deleteEntity,
+    setStatusBanner,
   } = useFinFolioStore();
 
+  const [editingCatId, setEditingCatId] = useState<string | null>(null);
   const [catName, setCatName] = useState("");
   const [catParentId, setCatParentId] = useState("");
   const [catDirection, setCatDirection] =
     useState<CategoryDirection>("Expense");
   const [catColor, setCatColor] = useState("#10b981");
 
+  const [editingEntId, setEditingEntId] = useState<string | null>(null);
   const [entName, setEntName] = useState("");
   const [entDefaultCatId, setEntDefaultCatId] = useState("");
   const [entNif, setEntNif] = useState("");
 
-  const handleAddCategory = async (e: React.FormEvent) => {
+  const startEditCategory = (cat: Category) => {
+    setEditingCatId(cat.id);
+    setCatName(cat.name);
+    setCatParentId(cat.parent_id || "");
+    setCatDirection(cat.direction);
+    setCatColor(cat.color_hex);
+  };
+
+  const resetCategoryForm = () => {
+    setEditingCatId(null);
+    setCatName("");
+    setCatParentId("");
+    setCatDirection("Expense");
+    setCatColor("#10b981");
+  };
+
+  const handleSaveCategoryForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!catName.trim()) return;
     await saveCategory({
-      id: "",
+      id: editingCatId || "",
       parent_id: catParentId || null,
       name: catName.trim(),
       direction: catDirection,
       color_hex: catColor,
     });
-    setCatName("");
+    setStatusBanner(
+      editingCatId
+        ? `✓ Updated category "${catName.trim()}"`
+        : `✓ Created category "${catName.trim()}"`
+    );
+    resetCategoryForm();
   };
 
-  const handleAddEntity = async (e: React.FormEvent) => {
+  const handleRequestDeleteCategory = async (cat: Category) => {
+    const hasChildren = categories.some((c) => c.parent_id === cat.id);
+    if (hasChildren) {
+      window.alert(
+        "Cannot delete category with sub-categories. Reassign or delete sub-categories first."
+      );
+      return;
+    }
+    await deleteCategory(cat.id);
+    if (editingCatId === cat.id) {
+      resetCategoryForm();
+    }
+    setStatusBanner(`✓ Deleted category "${cat.name}"`);
+  };
+
+  const startEditEntity = (ent: Entity) => {
+    setEditingEntId(ent.id);
+    setEntName(ent.normalized_name);
+    setEntDefaultCatId(ent.default_category_id || "");
+    setEntNif(ent.tax_id_nif || "");
+  };
+
+  const resetEntityForm = () => {
+    setEditingEntId(null);
+    setEntName("");
+    setEntDefaultCatId("");
+    setEntNif("");
+  };
+
+  const handleSaveEntityForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!entName.trim()) return;
     await saveEntity({
-      id: "",
+      id: editingEntId || "",
       normalized_name: entName.trim(),
       default_category_id: entDefaultCatId || null,
       tax_id_nif: entNif.trim() || null,
     });
-    setEntName("");
-    setEntNif("");
+    setStatusBanner(
+      editingEntId
+        ? `✓ Updated entity "${entName.trim()}"`
+        : `✓ Created entity "${entName.trim()}"`
+    );
+    resetEntityForm();
   };
 
   const level1 = categories.filter((c) => !c.parent_id);
@@ -81,51 +156,101 @@ export const TaxonomyView: React.FC = () => {
         </div>
 
         <form
-          onSubmit={(e) => void handleAddCategory(e)}
-          className="flex flex-wrap md:grid md:grid-cols-[1fr_150px_100px_42px_auto] gap-2 text-xs"
+          onSubmit={(e) => void handleSaveCategoryForm(e)}
+          className={`p-3 rounded-xl border space-y-2.5 text-xs ${
+            editingCatId
+              ? "bg-emerald-950/20 border-emerald-500/40"
+              : "bg-neutral-950/60 border-neutral-800"
+          }`}
         >
-          <input
-            type="text"
-            placeholder="New category name..."
-            value={catName}
-            onChange={(e) => setCatName(e.target.value)}
-            className="px-2.5 py-1.5 rounded-lg bg-neutral-950 border border-neutral-700 text-white"
-          />
-          <select
-            value={catParentId}
-            onChange={(e) => setCatParentId(e.target.value)}
-            className="px-2 py-1.5 rounded-lg bg-neutral-950 border border-neutral-700 text-white"
-          >
-            <option value="">Root (Level 1)</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                ↳ {c.name}
-              </option>
+          {editingCatId && (
+            <div className="flex items-center justify-between text-emerald-300 font-semibold">
+              <span>Editing Category</span>
+              <button
+                type="button"
+                onClick={resetCategoryForm}
+                className="text-neutral-400 hover:text-white flex items-center gap-1"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Cancel</span>
+              </button>
+            </div>
+          )}
+
+          <div className="flex flex-wrap md:grid md:grid-cols-[1fr_140px_100px_42px_auto] gap-2">
+            <input
+              type="text"
+              placeholder="Category name..."
+              value={catName}
+              onChange={(e) => setCatName(e.target.value)}
+              className="px-2.5 py-1.5 rounded-lg bg-neutral-950 border border-neutral-700 text-white"
+            />
+            <select
+              value={catParentId}
+              onChange={(e) => setCatParentId(e.target.value)}
+              className="px-2 py-1.5 rounded-lg bg-neutral-950 border border-neutral-700 text-white"
+            >
+              <option value="">Root (Level 1)</option>
+              {categories
+                .filter((c) => c.id !== editingCatId)
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    ↳ {c.name}
+                  </option>
+                ))}
+            </select>
+            <select
+              value={catDirection}
+              onChange={(e) =>
+                setCatDirection(e.target.value as CategoryDirection)
+              }
+              className="px-2 py-1.5 rounded-lg bg-neutral-950 border border-neutral-700 text-white"
+            >
+              <option value="Expense">Expense</option>
+              <option value="Income">Income</option>
+            </select>
+            <input
+              type="color"
+              value={catColor}
+              onChange={(e) => setCatColor(e.target.value)}
+              className="w-full h-8 rounded bg-neutral-950 border border-neutral-700 cursor-pointer"
+            />
+            <button
+              type="submit"
+              className="px-3 py-1.5 rounded-lg bg-emerald-500 text-neutral-950 font-semibold hover:bg-emerald-400 flex items-center gap-1"
+            >
+              {editingCatId ? (
+                <>
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Save</span>
+                </>
+              ) : (
+                <>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* 12-Tone Curated Swatches */}
+          <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+            <span className="text-[10px] text-neutral-500 mr-1">Swatches:</span>
+            {CURATED_SWATCHES.map((swatch) => (
+              <button
+                key={swatch}
+                type="button"
+                onClick={() => setCatColor(swatch)}
+                title={swatch}
+                className={`w-4 h-4 rounded-full transition-transform ${
+                  catColor.toLowerCase() === swatch.toLowerCase()
+                    ? "ring-2 ring-white scale-110"
+                    : "opacity-80 hover:opacity-100"
+                }`}
+                style={{ backgroundColor: swatch }}
+              />
             ))}
-          </select>
-          <select
-            value={catDirection}
-            onChange={(e) =>
-              setCatDirection(e.target.value as CategoryDirection)
-            }
-            className="px-2 py-1.5 rounded-lg bg-neutral-950 border border-neutral-700 text-white"
-          >
-            <option value="Expense">Expense</option>
-            <option value="Income">Income</option>
-          </select>
-          <input
-            type="color"
-            value={catColor}
-            onChange={(e) => setCatColor(e.target.value)}
-            className="w-full h-8 rounded bg-neutral-950 border border-neutral-700 cursor-pointer"
-          />
-          <button
-            type="submit"
-            className="px-3 py-1.5 rounded-lg bg-emerald-500 text-neutral-950 font-semibold hover:bg-emerald-400 flex items-center gap-1"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Add
-          </button>
+          </div>
         </form>
 
         <div className="space-y-2 flex-1 overflow-y-auto pr-1 text-xs">
@@ -153,12 +278,24 @@ export const TaxonomyView: React.FC = () => {
                       {l1.direction}
                     </span>
                   </div>
-                  <button
-                    onClick={() => void deleteCategory(l1.id)}
-                    className="text-neutral-500 hover:text-rose-400"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => startEditCategory(l1)}
+                      title="Edit Category"
+                      className="p-1 rounded text-neutral-400 hover:text-emerald-400 hover:bg-neutral-800"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleRequestDeleteCategory(l1)}
+                      title="Delete Category"
+                      className="p-1 rounded text-neutral-500 hover:text-rose-400 hover:bg-neutral-800"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
 
                 {level2.map((l2) => {
@@ -176,12 +313,24 @@ export const TaxonomyView: React.FC = () => {
                           />
                           <span>{l2.name}</span>
                         </div>
-                        <button
-                          onClick={() => void deleteCategory(l2.id)}
-                          className="text-neutral-600 hover:text-rose-400"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => startEditCategory(l2)}
+                            title="Edit Sub-Category"
+                            className="p-0.5 rounded text-neutral-500 hover:text-emerald-400"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleRequestDeleteCategory(l2)}
+                            title="Delete Sub-Category"
+                            className="p-0.5 rounded text-neutral-600 hover:text-rose-400"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
 
                       {level3.map((l3) => (
@@ -197,12 +346,26 @@ export const TaxonomyView: React.FC = () => {
                             />
                             <span>{l3.name}</span>
                           </div>
-                          <button
-                            onClick={() => void deleteCategory(l3.id)}
-                            className="text-neutral-600 hover:text-rose-400"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => startEditCategory(l3)}
+                              title="Edit Leaf Category"
+                              className="p-0.5 rounded text-neutral-500 hover:text-emerald-400"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void handleRequestDeleteCategory(l3)
+                              }
+                              title="Delete Leaf Category"
+                              className="p-0.5 rounded text-neutral-600 hover:text-rose-400"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -220,7 +383,7 @@ export const TaxonomyView: React.FC = () => {
           <div className="flex items-center gap-2">
             <Building2 className="w-4 h-4 text-emerald-400" />
             <h2 className="text-sm font-semibold">
-              Entities (Counterparties & Default Category Inheritance)
+              Entities (Counterparties &amp; Default Category Inheritance)
             </h2>
           </div>
           <span className="text-xs text-neutral-400 font-mono">
@@ -229,42 +392,71 @@ export const TaxonomyView: React.FC = () => {
         </div>
 
         <form
-          onSubmit={(e) => void handleAddEntity(e)}
-          className="flex flex-wrap md:grid md:grid-cols-[1fr_170px_110px_auto] gap-2 text-xs"
+          onSubmit={(e) => void handleSaveEntityForm(e)}
+          className={`p-3 rounded-xl border space-y-2 text-xs ${
+            editingEntId
+              ? "bg-emerald-950/20 border-emerald-500/40"
+              : "bg-neutral-950/60 border-neutral-800"
+          }`}
         >
-          <input
-            type="text"
-            placeholder="Merchant / Entity (e.g. Continente)"
-            value={entName}
-            onChange={(e) => setEntName(e.target.value)}
-            className="px-2.5 py-1.5 rounded-lg bg-neutral-950 border border-neutral-700 text-white"
-          />
-          <select
-            value={entDefaultCatId}
-            onChange={(e) => setEntDefaultCatId(e.target.value)}
-            className="px-2 py-1.5 rounded-lg bg-neutral-950 border border-neutral-700 text-white"
-          >
-            <option value="">-- Default Category --</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          <input
-            type="text"
-            placeholder="NIF (Optional)"
-            value={entNif}
-            onChange={(e) => setEntNif(e.target.value)}
-            className="px-2 py-1.5 rounded-lg bg-neutral-950 border border-neutral-700 text-white font-mono"
-          />
-          <button
-            type="submit"
-            className="px-3 py-1.5 rounded-lg bg-emerald-500 text-neutral-950 font-semibold hover:bg-emerald-400 flex items-center gap-1"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Add
-          </button>
+          {editingEntId && (
+            <div className="flex items-center justify-between text-emerald-300 font-semibold">
+              <span>Editing Counterparty Entity</span>
+              <button
+                type="button"
+                onClick={resetEntityForm}
+                className="text-neutral-400 hover:text-white flex items-center gap-1"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Cancel</span>
+              </button>
+            </div>
+          )}
+
+          <div className="flex flex-wrap md:grid md:grid-cols-[1fr_170px_110px_auto] gap-2">
+            <input
+              type="text"
+              placeholder="Merchant / Entity (e.g. Continente)"
+              value={entName}
+              onChange={(e) => setEntName(e.target.value)}
+              className="px-2.5 py-1.5 rounded-lg bg-neutral-950 border border-neutral-700 text-white"
+            />
+            <select
+              value={entDefaultCatId}
+              onChange={(e) => setEntDefaultCatId(e.target.value)}
+              className="px-2 py-1.5 rounded-lg bg-neutral-950 border border-neutral-700 text-white"
+            >
+              <option value="">-- Default Category --</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <input
+              type="text"
+              placeholder="NIF (Optional)"
+              value={entNif}
+              onChange={(e) => setEntNif(e.target.value)}
+              className="px-2 py-1.5 rounded-lg bg-neutral-950 border border-neutral-700 text-white font-mono"
+            />
+            <button
+              type="submit"
+              className="px-3 py-1.5 rounded-lg bg-emerald-500 text-neutral-950 font-semibold hover:bg-emerald-400 flex items-center gap-1"
+            >
+              {editingEntId ? (
+                <>
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Save</span>
+                </>
+              ) : (
+                <>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add</span>
+                </>
+              )}
+            </button>
+          </div>
         </form>
 
         <div className="divide-y divide-neutral-800/80 flex-1 overflow-y-auto text-xs">
@@ -295,13 +487,24 @@ export const TaxonomyView: React.FC = () => {
                     )}
                   </div>
                 </div>
-                <button
-                  onClick={() => void deleteEntity(ent.id)}
-                  className="text-neutral-500 hover:text-rose-400 p-1"
-                  title="Delete Entity (Sets historical transactions entity_id to NULL)"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => startEditEntity(ent)}
+                    className="text-neutral-400 hover:text-emerald-400 p-1 rounded hover:bg-neutral-800"
+                    title="Edit Entity"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deleteEntity(ent.id)}
+                    className="text-neutral-500 hover:text-rose-400 p-1 rounded hover:bg-neutral-800"
+                    title="Delete Entity (Sets historical transactions entity_id to NULL)"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             );
           })}

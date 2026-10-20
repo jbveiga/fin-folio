@@ -9,6 +9,8 @@ import {
   ArrowRightLeft,
   RotateCcw,
   Check,
+  CheckCheck,
+  Inbox,
   AlertTriangle,
   Pencil,
   X,
@@ -30,6 +32,9 @@ export const VirtualizedLedgerView: React.FC = () => {
   const {
     transactions,
     totalTransactionCount,
+    uncategorizedCount,
+    isUncategorizedFilterActive,
+    selectedLedgerTxIds,
     accountSummaries,
     selectedAccountIds,
     categories,
@@ -40,12 +45,20 @@ export const VirtualizedLedgerView: React.FC = () => {
     expandedSplitTxIds,
     isNewTransactionRowOpen,
     setSearchQuery,
+    toggleUncategorizedFilter,
     setActiveLedgerRowIdx,
     setEditingTxId,
     toggleSplitExpanded,
     toggleTransactionReconciled,
     saveTransaction,
     deleteTransaction,
+    toggleSelectLedgerTx,
+    selectAllLedgerTxs,
+    clearSelectedLedgerTxs,
+    batchAssignCategory,
+    batchAssignEntity,
+    batchToggleReconciled,
+    batchDeleteTransactions,
     setNewTransactionRowOpen,
     setStatusBanner,
   } = useFinFolioStore();
@@ -209,7 +222,7 @@ export const VirtualizedLedgerView: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-neutral-950 text-neutral-100">
       {/* Sub-header Toolbar */}
-      <div className="px-3 md:px-4 py-1.5 md:py-2 border-b border-neutral-800 bg-neutral-900/50 flex items-center justify-between text-xs">
+      <div className="px-3 md:px-4 py-1.5 md:py-2 border-b border-neutral-800 bg-neutral-900/50 flex flex-wrap items-center justify-between gap-2 text-xs">
         <div className="flex flex-wrap items-center gap-2 md:gap-3">
           <span className="font-semibold text-neutral-200 hidden sm:inline">
             Master Virtualized Ledger
@@ -218,6 +231,27 @@ export const VirtualizedLedgerView: React.FC = () => {
             Showing {transactions.length.toLocaleString()} of{" "}
             {totalTransactionCount.toLocaleString()} transactions
           </span>
+
+          {/* Task 1: Needs Categorization Inbox & Triage Pill */}
+          <button
+            type="button"
+            onClick={() => void toggleUncategorizedFilter()}
+            className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${
+              isUncategorizedFilterActive
+                ? "bg-amber-500/25 text-amber-200 border border-amber-400/60 ring-1 ring-amber-400/40"
+                : uncategorizedCount > 0
+                ? "bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 border border-amber-500/30"
+                : "bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800"
+            }`}
+            title="Filter transactions needing categorization"
+          >
+            <Inbox className="w-3.5 h-3.5 text-amber-400" />
+            <span>Needs Categorization</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-amber-500/20 text-amber-300">
+              {uncategorizedCount}
+            </span>
+          </button>
+
           {searchQuery && (
             <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono text-[11px] flex items-center gap-1.5">
               <span>Filter: &ldquo;{searchQuery}&rdquo;</span>
@@ -231,7 +265,7 @@ export const VirtualizedLedgerView: React.FC = () => {
               </button>
             </span>
           )}
-          <span className="text-[11px] text-neutral-400 hidden lg:inline">
+          <span className="text-[11px] text-neutral-400 hidden xl:inline">
             Shortcuts:{" "}
             <kbd className="px-1 py-0.5 bg-neutral-800 rounded font-mono text-[10px]">
               ↑/↓
@@ -255,7 +289,50 @@ export const VirtualizedLedgerView: React.FC = () => {
             Quick Entry
           </span>
         </div>
+
+        {/* Mobile / Quick Select All Toggle */}
+        <div className="flex items-center gap-2 md:hidden">
+          <button
+            type="button"
+            onClick={() => {
+              if (
+                transactions.length > 0 &&
+                selectedLedgerTxIds.length === transactions.length
+              ) {
+                clearSelectedLedgerTxs();
+              } else {
+                selectAllLedgerTxs();
+              }
+            }}
+            className="px-2 py-1 rounded bg-neutral-900 border border-neutral-800 text-[11px] text-neutral-300"
+          >
+            {transactions.length > 0 &&
+            selectedLedgerTxIds.length === transactions.length
+              ? "Deselect All"
+              : "Select All"}
+          </button>
+        </div>
       </div>
+
+      {/* Active Uncategorized Inbox Triage Banner */}
+      {isUncategorizedFilterActive && (
+        <div className="px-3 md:px-4 py-1.5 bg-amber-500/15 border-b border-amber-500/30 flex items-center justify-between text-xs text-amber-200">
+          <div className="flex items-center gap-2">
+            <Inbox className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span>
+              Showing <strong>{transactions.length}</strong> transaction(s)
+              needing categorization
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => void toggleUncategorizedFilter()}
+            className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 font-medium text-[11px]"
+          >
+            Clear Filter
+          </button>
+        </div>
+      )}
 
       {/* Surface 2: Manual Quick Entry Bar (`Cmd+N`) with Rapid "Add & Next" Loop */}
       {isNewTransactionRowOpen && (
@@ -374,7 +451,28 @@ export const VirtualizedLedgerView: React.FC = () => {
       </datalist>
 
       {/* Grid Column Headers (Desktop >= 768px) */}
-      <div className="hidden md:grid grid-cols-[36px_96px_130px_170px_220px_1fr_130px_84px] items-center px-4 h-8 bg-neutral-900 border-b border-neutral-800 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 shrink-0">
+      <div className="hidden md:grid grid-cols-[32px_36px_96px_130px_170px_220px_1fr_130px_84px] items-center px-4 h-8 bg-neutral-900 border-b border-neutral-800 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 shrink-0">
+        <div className="flex items-center">
+          <input
+            type="checkbox"
+            checked={
+              transactions.length > 0 &&
+              selectedLedgerTxIds.length === transactions.length
+            }
+            onChange={() => {
+              if (
+                transactions.length > 0 &&
+                selectedLedgerTxIds.length === transactions.length
+              ) {
+                clearSelectedLedgerTxs();
+              } else {
+                selectAllLedgerTxs();
+              }
+            }}
+            title="Select / Deselect All Visible Transactions"
+            className="w-3.5 h-3.5 rounded border-neutral-700 bg-neutral-950 accent-emerald-500 cursor-pointer"
+          />
+        </div>
         <div>Rec</div>
         <div>Date</div>
         <div>Account</div>
@@ -451,8 +549,26 @@ export const VirtualizedLedgerView: React.FC = () => {
                     {/* ===================================================== */}
                     <div
                       onClick={() => setEditingTxId(tx.id)}
-                      className="md:hidden min-h-[56px] pl-3 pr-1 py-2 flex items-center justify-between gap-2 active:bg-neutral-800/70"
+                      className={`md:hidden min-h-[56px] pl-2.5 pr-1 py-2 flex items-center justify-between gap-2 active:bg-neutral-800/70 ${
+                        selectedLedgerTxIds.includes(tx.id)
+                          ? "bg-emerald-950/25"
+                          : ""
+                      }`}
                     >
+                      <input
+                        type="checkbox"
+                        checked={selectedLedgerTxIds.includes(tx.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          const shift =
+                            e.nativeEvent instanceof MouseEvent &&
+                            e.nativeEvent.shiftKey;
+                          toggleSelectLedgerTx(tx.id, shift);
+                        }}
+                        aria-label="Select Transaction"
+                        className="w-4 h-4 rounded border-neutral-700 bg-neutral-950 accent-emerald-500 shrink-0"
+                      />
+
                       <div className="flex-1 min-w-0 space-y-1">
                         {/* Line 1: Counterparty / Description + Amount */}
                         <div className="flex items-baseline justify-between gap-2">
@@ -562,9 +678,29 @@ export const VirtualizedLedgerView: React.FC = () => {
                     </div>
 
                     {/* ===================================================== */}
-                    {/* DESKTOP 8-COLUMN GRID (>= 768px)                      */}
+                    {/* DESKTOP 9-COLUMN GRID (>= 768px)                      */}
                     {/* ===================================================== */}
-                    <div className="hidden md:grid grid-cols-[36px_96px_130px_170px_220px_1fr_130px_84px] items-center px-4 h-9 text-[13px]">
+                    <div
+                      className={`hidden md:grid grid-cols-[32px_36px_96px_130px_170px_220px_1fr_130px_84px] items-center px-4 h-9 text-[13px] ${
+                        selectedLedgerTxIds.includes(tx.id)
+                          ? "bg-emerald-950/25"
+                          : ""
+                      }`}
+                    >
+                      <div className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedLedgerTxIds.includes(tx.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleSelectLedgerTx(tx.id, e.shiftKey);
+                          }}
+                          onChange={() => {}}
+                          title="Select Row (Shift+Click for range)"
+                          className="w-3.5 h-3.5 rounded border-neutral-700 bg-neutral-950 accent-emerald-500 cursor-pointer"
+                        />
+                      </div>
+
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -738,6 +874,106 @@ export const VirtualizedLedgerView: React.FC = () => {
           })}
         </div>
       </div>
+
+      {/* ================================================================= */}
+      {/* Task 2: Floating Batch Action Bar (appears when >= 1 tx selected) */}
+      {/* ================================================================= */}
+      {selectedLedgerTxIds.length > 0 && (
+        <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-40 bg-neutral-900/95 backdrop-blur-md border border-neutral-700/80 shadow-2xl rounded-2xl px-3 md:px-4 py-2.5 flex flex-wrap items-center gap-2 md:gap-3 text-xs text-white max-w-[95vw]">
+          <div className="flex items-center gap-1.5 pr-2 border-r border-neutral-800">
+            <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-mono font-semibold">
+              {selectedLedgerTxIds.length} selected
+            </span>
+            <button
+              type="button"
+              onClick={clearSelectedLedgerTxs}
+              className="px-1.5 py-1 rounded text-neutral-400 hover:text-white hover:bg-neutral-800"
+              title="Clear Selection"
+            >
+              Clear
+            </button>
+          </div>
+
+          {/* Batch Assign Category Dropdown */}
+          <select
+            value=""
+            onChange={(e) => {
+              const val = e.target.value;
+              if (!val) return;
+              const catId = val === "__uncategorized__" ? null : val;
+              void batchAssignCategory(selectedLedgerTxIds, catId);
+            }}
+            className="px-2.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-100 text-xs font-medium focus:outline-none focus:border-emerald-500"
+          >
+            <option value="">🏷️ Assign Category...</option>
+            <option value="__uncategorized__">-- Mark Uncategorized --</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {categoryPathMap.get(c.id) || c.name} ({c.direction})
+              </option>
+            ))}
+          </select>
+
+          {/* Batch Assign Entity / Merchant Dropdown */}
+          <select
+            value=""
+            onChange={(e) => {
+              const val = e.target.value;
+              if (!val) return;
+              const entId = val === "__none__" ? null : val;
+              void batchAssignEntity(selectedLedgerTxIds, entId);
+            }}
+            className="px-2.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-100 text-xs font-medium focus:outline-none focus:border-emerald-500"
+          >
+            <option value="">🏢 Assign Merchant...</option>
+            <option value="__none__">-- Clear Merchant --</option>
+            {entities.map((ent) => (
+              <option key={ent.id} value={ent.id}>
+                {ent.normalized_name}
+              </option>
+            ))}
+          </select>
+
+          {/* Batch Toggle Reconciled */}
+          <button
+            type="button"
+            onClick={() => {
+              const selectedSet = new Set(selectedLedgerTxIds);
+              const allCurrentlyReconciled = transactions
+                .filter((t) => selectedSet.has(t.transaction.id))
+                .every((t) => t.transaction.is_reconciled);
+              void batchToggleReconciled(
+                selectedLedgerTxIds,
+                !allCurrentlyReconciled
+              );
+            }}
+            className="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 font-medium flex items-center gap-1.5 transition-colors"
+            title="Toggle Reconciled on Selected Rows"
+          >
+            <CheckCheck className="w-3.5 h-3.5" />
+            <span>Reconcile</span>
+          </button>
+
+          {/* Batch Delete Selected */}
+          <button
+            type="button"
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Delete ${selectedLedgerTxIds.length} selected transaction(s)? This cannot be undone.`
+                )
+              ) {
+                void batchDeleteTransactions(selectedLedgerTxIds);
+              }
+            }}
+            className="px-2.5 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 font-medium flex items-center gap-1.5 transition-colors"
+            title="Delete Selected Transactions"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Delete</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

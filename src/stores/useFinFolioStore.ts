@@ -36,6 +36,10 @@ interface FinFolioState {
   // Ledger & Context Header KPIs
   transactions: TransactionWithSplits[];
   totalTransactionCount: number;
+  uncategorizedCount: number;
+  isUncategorizedFilterActive: boolean;
+  selectedLedgerTxIds: string[];
+  lastSelectedTxId: string | null;
   periodInflowCents: Cents;
   periodOutflowCents: Cents;
   netCashFlowCents: Cents;
@@ -72,9 +76,10 @@ interface FinFolioState {
   saveAccount: (account: Account) => Promise<void>;
   deleteAccount: (id: string) => Promise<void>;
 
-  // Ledger Filtering & Actions
+  // Ledger Filtering, Batch Selection & Actions
   setDateRange: (startDate: string, endDate: string) => Promise<void>;
   setSearchQuery: (query: string) => Promise<void>;
+  toggleUncategorizedFilter: () => Promise<void>;
   refreshLedger: () => Promise<void>;
   setActiveLedgerRowIdx: (idx: number) => void;
   setEditingTxId: (txId: string | null) => void;
@@ -82,6 +87,19 @@ interface FinFolioState {
   toggleTransactionReconciled: (txId: string) => Promise<void>;
   saveTransaction: (input: SaveTransactionInput) => Promise<void>;
   deleteTransaction: (txId: string) => Promise<void>;
+  toggleSelectLedgerTx: (txId: string, shiftKey?: boolean) => void;
+  selectAllLedgerTxs: () => void;
+  clearSelectedLedgerTxs: () => void;
+  batchAssignCategory: (
+    txIds: string[],
+    categoryId: string | null
+  ) => Promise<void>;
+  batchAssignEntity: (txIds: string[], entityId: string | null) => Promise<void>;
+  batchToggleReconciled: (
+    txIds: string[],
+    reconciled: boolean
+  ) => Promise<void>;
+  batchDeleteTransactions: (txIds: string[]) => Promise<void>;
 
   // Staging Grid Actions
   setStagingAccountId: (accountId: string) => void;
@@ -134,6 +152,10 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
 
   transactions: [],
   totalTransactionCount: 0,
+  uncategorizedCount: 0,
+  isUncategorizedFilterActive: false,
+  selectedLedgerTxIds: [],
+  lastSelectedTxId: null,
   periodInflowCents: 0,
   periodOutflowCents: 0,
   netCashFlowCents: 0,
@@ -253,8 +275,22 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
     await get().refreshLedger();
   },
 
+  toggleUncategorizedFilter: async () => {
+    set((s) => ({
+      isUncategorizedFilterActive: !s.isUncategorizedFilterActive,
+    }));
+    await get().refreshLedger();
+  },
+
   refreshLedger: async () => {
-    const { selectedAccountIds, startDate, endDate, searchQuery } = get();
+    const {
+      selectedAccountIds,
+      startDate,
+      endDate,
+      searchQuery,
+      isUncategorizedFilterActive,
+      selectedLedgerTxIds,
+    } = get();
     const [res, accountSummaries] = await Promise.all([
       ipc.queryLedger({
         accountIds: selectedAccountIds,
@@ -267,9 +303,28 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
       ipc.listAccounts(),
     ]);
 
+    const isTxUncategorized = (item: TransactionWithSplits) =>
+      item.splits.some(
+        (s) => !s.category_id && !s.transfer_peer_account_id
+      );
+
+    const uncategorizedCount = res.transactions.filter(isTxUncategorized).length;
+    const finalTransactions = isUncategorizedFilterActive
+      ? res.transactions.filter(isTxUncategorized)
+      : res.transactions;
+
+    const visibleIdSet = new Set(finalTransactions.map((t) => t.transaction.id));
+    const prunedSelection = selectedLedgerTxIds.filter((id) =>
+      visibleIdSet.has(id)
+    );
+
     set({
-      transactions: res.transactions,
-      totalTransactionCount: res.total_count,
+      transactions: finalTransactions,
+      totalTransactionCount: isUncategorizedFilterActive
+        ? finalTransactions.length
+        : res.total_count,
+      uncategorizedCount,
+      selectedLedgerTxIds: prunedSelection,
       periodInflowCents: res.period_inflow_cents,
       periodOutflowCents: res.period_outflow_cents,
       netCashFlowCents: res.net_cash_flow_cents,
@@ -307,6 +362,92 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
   deleteTransaction: async (txId) => {
     await ipc.deleteTransaction(txId);
     await get().refreshLedger();
+  },
+
+  toggleSelectLedgerTx: (txId, shiftKey = false) => {
+    const { transactions, selectedLedgerTxIds, lastSelectedTxId } = get();
+    if (shiftKey && lastSelectedTxId && lastSelectedTxId !== txId) {
+      const idxA = transactions.findIndex(
+        (t) => t.transaction.id === lastSelectedTxId
+      );
+      const idxB = transactions.findIndex((t) => t.transaction.id === txId);
+      if (idxA !== -1 && idxB !== -1) {
+        const start = Math.min(idxA, idxB);
+        const end = Math.max(idxA, idxB);
+        const rangeIds = transactions
+          .slice(start, end + 1)
+          .map((t) => t.transaction.id);
+        const merged = Array.from(new Set([...selectedLedgerTxIds, ...rangeIds]));
+        set({ selectedLedgerTxIds: merged, lastSelectedTxId: txId });
+        return;
+      }
+    }
+
+    const exists = selectedLedgerTxIds.includes(txId);
+    const next = exists
+      ? selectedLedgerTxIds.filter((id) => id !== txId)
+      : [...selectedLedgerTxIds, txId];
+    set({
+      selectedLedgerTxIds: next,
+      lastSelectedTxId: txId,
+    });
+  },
+
+  selectAllLedgerTxs: () => {
+    const allIds = get().transactions.map((t) => t.transaction.id);
+    set({ selectedLedgerTxIds: allIds });
+  },
+
+  clearSelectedLedgerTxs: () => {
+    set({ selectedLedgerTxIds: [], lastSelectedTxId: null });
+  },
+
+  batchAssignCategory: async (txIds, categoryId) => {
+    await ipc.batchAssignCategory(txIds, categoryId);
+    const cat = categoryId
+      ? get().categories.find((c) => c.id === categoryId)
+      : null;
+    await get().refreshLedger();
+    set({
+      selectedLedgerTxIds: [],
+      statusBannerMessage: `✓ Assigned category "${
+        cat ? cat.name : "Uncategorized"
+      }" to ${txIds.length} transaction(s).`,
+    });
+  },
+
+  batchAssignEntity: async (txIds, entityId) => {
+    await ipc.batchAssignEntity(txIds, entityId);
+    const ent = entityId
+      ? get().entities.find((e) => e.id === entityId)
+      : null;
+    await get().refreshLedger();
+    set({
+      selectedLedgerTxIds: [],
+      statusBannerMessage: `✓ Assigned counterparty "${
+        ent ? ent.normalized_name : "None"
+      }" to ${txIds.length} transaction(s).`,
+    });
+  },
+
+  batchToggleReconciled: async (txIds, reconciled) => {
+    await ipc.batchToggleReconciled(txIds, reconciled);
+    await get().refreshLedger();
+    set({
+      selectedLedgerTxIds: [],
+      statusBannerMessage: `✓ Marked ${txIds.length} transaction(s) as ${
+        reconciled ? "Reconciled" : "Unreconciled"
+      }.`,
+    });
+  },
+
+  batchDeleteTransactions: async (txIds) => {
+    await ipc.batchDeleteTransactions(txIds);
+    await get().refreshLedger();
+    set({
+      selectedLedgerTxIds: [],
+      statusBannerMessage: `✓ Deleted ${txIds.length} transaction(s).`,
+    });
   },
 
   setStagingAccountId: (accountId) => set({ stagingAccountId: accountId }),
@@ -453,12 +594,17 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
     await ipc.saveCategory(cat);
     const categories = await ipc.listCategories();
     set({ categories });
+    await get().refreshLedger();
   },
 
   deleteCategory: async (id) => {
     await ipc.deleteCategory(id);
-    const categories = await ipc.listCategories();
-    set({ categories });
+    const [categories, entities] = await Promise.all([
+      ipc.listCategories(),
+      ipc.listEntities(),
+    ]);
+    set({ categories, entities });
+    await get().refreshLedger();
   },
 
   saveEntity: async (ent) => {
