@@ -15,6 +15,9 @@ import {
   AlertTriangle,
   Pencil,
   Repeat,
+  SearchX,
+  BookOpen,
+  UploadCloud,
   X,
 } from "lucide-react";
 import { useFinFolioStore } from "../stores/useFinFolioStore";
@@ -42,12 +45,16 @@ export const VirtualizedLedgerView: React.FC = () => {
     categories,
     entities,
     recurringSchedules,
+    startDate,
+    endDate,
     searchQuery,
     activeLedgerRowIdx,
     editingTxId,
     expandedSplitTxIds,
     isNewTransactionRowOpen,
+    setDateRange,
     setSearchQuery,
+    setActiveView,
     toggleUncategorizedFilter,
     setActiveLedgerRowIdx,
     setEditingTxId,
@@ -518,69 +525,136 @@ export const VirtualizedLedgerView: React.FC = () => {
 
       {/* Virtualized Viewport (`@tanstack/react-virtual`) */}
       <div ref={parentRef} className="flex-1 overflow-y-auto relative">
-        <div
-          style={{
-            height: `${rowVirtualizer.getTotalSize()}px`,
-            width: "100%",
-            position: "relative",
-          }}
-        >
-          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-            const item = transactions[virtualRow.index];
-            if (!item) return null;
-            const { transaction: tx, splits } = item;
-            const isFocused = virtualRow.index === activeLedgerRowIdx;
-            const isEditing = editingTxId === tx.id;
-            const isSplitExpanded = expandedSplitTxIds.includes(tx.id);
-            const account = accountMap.get(tx.account_id);
-            const entity = tx.entity_id ? entityMap.get(tx.entity_id) : null;
-
-            const primarySplit = splits[0];
-            const primaryCat = primarySplit?.category_id
-              ? categoryMap.get(primarySplit.category_id)
-              : null;
-            const transferPeer = primarySplit?.transfer_peer_account_id
-              ? accountMap.get(primarySplit.transfer_peer_account_id)
-              : null;
-
-            // Detect Section 5.3 "MB WAY Dinner" Expense Reimbursement:
-            // Positive transaction amount assigned directly to an Expense category
-            const isExpenseReimbursement =
-              tx.total_amount_cents > 0 && primaryCat?.direction === "Expense";
-
-            // Detect whether this transaction is flagged as recurring or matches an active RecurringSchedule
-            const isTxRecurring =
-              Boolean(tx.is_recurring) ||
-              recurringSchedules.some(
-                (r) =>
-                  r.is_active &&
-                  ((tx.entity_id && r.entity_id === tx.entity_id) ||
-                    (r.name.trim().length >= 3 &&
-                      tx.clean_description
-                        .toLowerCase()
-                        .includes(r.name.trim().toLowerCase())))
-              );
-
-            return (
-              <div
-                key={tx.id}
-                data-index={virtualRow.index}
-                ref={rowVirtualizer.measureElement}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  transform: `translateY(${virtualRow.start}px)`,
+        {transactions.length === 0 ? (
+          <div className="h-80 flex flex-col items-center justify-center p-8 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-neutral-900 border border-neutral-800 flex items-center justify-center mb-3">
+              {searchQuery ||
+              isUncategorizedFilterActive ||
+              startDate ||
+              endDate ? (
+                <SearchX className="w-6 h-6 text-amber-400/90" />
+              ) : (
+                <BookOpen className="w-6 h-6 text-emerald-400/90" />
+              )}
+            </div>
+            <div className="text-sm font-semibold text-neutral-200">
+              {searchQuery ||
+              isUncategorizedFilterActive ||
+              startDate ||
+              endDate
+                ? "No transactions found matching active filters"
+                : "No transactions recorded yet in this account"}
+            </div>
+            <p className="text-xs text-neutral-500 max-w-sm mt-1 mb-4 leading-relaxed">
+              {searchQuery ||
+              isUncategorizedFilterActive ||
+              startDate ||
+              endDate
+                ? "Try broadening your search query, clearing the date filter, or switching active accounts."
+                : "Start tracking by adding a manual transaction or importing a bank statement."}
+            </p>
+            {searchQuery ||
+            isUncategorizedFilterActive ||
+            startDate ||
+            endDate ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void setSearchQuery("");
+                  void setDateRange("", "");
+                  if (isUncategorizedFilterActive) {
+                    void toggleUncategorizedFilter();
+                  }
                 }}
-                onClick={() => setActiveLedgerRowIdx(virtualRow.index)}
-                onDoubleClick={() => setEditingTxId(tx.id)}
-                className={`border-b border-neutral-900 transition-colors ${
-                  isFocused
-                    ? "bg-neutral-800/90 ring-1 ring-inset ring-emerald-500/70 shadow-sm"
-                    : "hover:bg-neutral-900/60"
-                }`}
+                className="px-3.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 text-xs font-medium transition-colors"
               >
+                Clear All Filters
+              </button>
+            ) : (
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNewTransactionRowOpen(true)}
+                  className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-neutral-950 font-semibold text-xs flex items-center gap-1.5 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Quick Entry (⌘N)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveView("staging")}
+                  className="px-3.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 font-medium text-xs flex items-center gap-1.5 transition-colors"
+                >
+                  <UploadCloud className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Import Statement (⌘I)</span>
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const item = transactions[virtualRow.index];
+              if (!item) return null;
+              const { transaction: tx, splits } = item;
+              const isFocused = virtualRow.index === activeLedgerRowIdx;
+              const isEditing = editingTxId === tx.id;
+              const isSplitExpanded = expandedSplitTxIds.includes(tx.id);
+              const account = accountMap.get(tx.account_id);
+              const entity = tx.entity_id ? entityMap.get(tx.entity_id) : null;
+
+              const primarySplit = splits[0];
+              const primaryCat = primarySplit?.category_id
+                ? categoryMap.get(primarySplit.category_id)
+                : null;
+              const transferPeer = primarySplit?.transfer_peer_account_id
+                ? accountMap.get(primarySplit.transfer_peer_account_id)
+                : null;
+
+              // Detect Section 5.3 "MB WAY Dinner" Expense Reimbursement:
+              // Positive transaction amount assigned directly to an Expense category
+              const isExpenseReimbursement =
+                tx.total_amount_cents > 0 && primaryCat?.direction === "Expense";
+
+              // Detect whether this transaction is flagged as recurring or matches an active RecurringSchedule
+              const isTxRecurring =
+                Boolean(tx.is_recurring) ||
+                recurringSchedules.some(
+                  (r) =>
+                    r.is_active &&
+                    ((tx.entity_id && r.entity_id === tx.entity_id) ||
+                      (r.name.trim().length >= 3 &&
+                        tx.clean_description
+                          .toLowerCase()
+                          .includes(r.name.trim().toLowerCase())))
+                );
+
+              return (
+                <div
+                  key={tx.id}
+                  data-index={virtualRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                  onClick={() => setActiveLedgerRowIdx(virtualRow.index)}
+                  onDoubleClick={() => setEditingTxId(tx.id)}
+                  className={`border-b border-neutral-900 transition-colors ${
+                    isFocused
+                      ? "bg-neutral-800/90 ring-1 ring-inset ring-emerald-500/70 shadow-sm"
+                      : "hover:bg-neutral-900/60 hover:border-l-2 hover:border-l-emerald-500/50"
+                  }`}
+                >
                 {isEditing ? (
                   <InlineRowEditForm
                     item={item}
@@ -951,7 +1025,8 @@ export const VirtualizedLedgerView: React.FC = () => {
               </div>
             );
           })}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* ================================================================= */}

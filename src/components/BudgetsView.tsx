@@ -372,8 +372,35 @@ export const BudgetsView: React.FC = () => {
           </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-          {budgetedList.map((item) => {
+        {budgetedList.length === 0 ? (
+          <div className="p-8 rounded-2xl bg-neutral-900/50 border border-neutral-800/80 text-center space-y-3">
+            <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mx-auto text-emerald-400">
+              <Target className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-neutral-200">
+                No Category Budgets Set Up Yet
+              </div>
+              <p className="text-xs text-neutral-400 max-w-md mx-auto mt-1">
+                Establish monthly spending targets for categories like
+                Supermercado, Habitação, or Restauração to track Safe-to-Spend
+                limits and receive over-budget alerts.
+              </p>
+            </div>
+            {unbudgetedList[0] && (
+              <button
+                type="button"
+                onClick={() => startEditBudget(unbudgetedList[0].category)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-neutral-950 font-semibold text-xs transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Set First Budget ({unbudgetedList[0].category.name})</span>
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {budgetedList.map((item) => {
             const {
               category: cat,
               categoryPath,
@@ -547,7 +574,8 @@ export const BudgetsView: React.FC = () => {
               </div>
             );
           })}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Unbudgeted Expense Categories Section */}

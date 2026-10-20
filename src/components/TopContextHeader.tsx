@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Command,
   Plus,
@@ -36,6 +36,31 @@ export const TopContextHeader: React.FC = () => {
   } = useFinFolioStore();
 
   const [isMobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [localSearch, setLocalSearch] = useState(searchQuery);
+
+  // Sync local search input when store searchQuery changes externally (e.g. click-to-filter or Clear All Filters)
+  useEffect(() => {
+    setLocalSearch(searchQuery);
+  }, [searchQuery]);
+
+  // 150ms debounce before dispatching ledger search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localSearch !== searchQuery) {
+        void setSearchQuery(localSearch);
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [localSearch, searchQuery, setSearchQuery]);
+
+  // 4000ms auto-dismiss timer for ambient status banner notifications
+  useEffect(() => {
+    if (!statusBannerMessage) return;
+    const timer = setTimeout(() => {
+      setStatusBanner(null);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [statusBannerMessage, setStatusBanner]);
 
   const presets = useMemo(() => getDatePresets(), []);
   const activePresetId = useMemo(
@@ -121,14 +146,17 @@ export const TopContextHeader: React.FC = () => {
               <input
                 type="text"
                 placeholder="Filter merchant, category, or description..."
-                value={searchQuery}
-                onChange={(e) => void setSearchQuery(e.target.value)}
+                value={localSearch}
+                onChange={(e) => setLocalSearch(e.target.value)}
                 className="w-full pl-8 pr-7 py-1.5 rounded-lg bg-neutral-900 border border-neutral-800 text-xs text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:border-emerald-500"
               />
-              {searchQuery && (
+              {localSearch && (
                 <button
                   type="button"
-                  onClick={() => void setSearchQuery("")}
+                  onClick={() => {
+                    setLocalSearch("");
+                    void setSearchQuery("");
+                  }}
                   className="absolute right-2 text-neutral-400 hover:text-white"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -297,8 +325,8 @@ export const TopContextHeader: React.FC = () => {
               <input
                 type="text"
                 placeholder="Filter merchant or raw text..."
-                value={searchQuery}
-                onChange={(e) => void setSearchQuery(e.target.value)}
+                value={localSearch}
+                onChange={(e) => setLocalSearch(e.target.value)}
                 className="pl-8 pr-3 py-1.5 w-48 rounded-lg bg-neutral-950 border border-neutral-800 text-xs text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:border-emerald-500"
               />
             </div>

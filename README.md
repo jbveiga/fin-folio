@@ -41,16 +41,17 @@ Every transaction, category, rule, and balance is computed entirely on your loca
 ## Features
 
 - **Multi-Account Switcher:** Instant multi-account checkbox filtering with sub-5ms reactive balance and cash flow recalculation.
-- **Top Context Header:** Real-time KPI summary cards displaying *Selected Balance*, *Period Inflow*, *Period Outflow*, and *Net Cash Flow*.
-- **Master Virtualized Ledger:** Render 100,000+ transactions effortlessly with `@tanstack/react-virtual`.
+- **Top Context Header & Date Presets:** Real-time KPI summary cards displaying *Selected Balance*, *Period Inflow*, *Period Outflow*, and *Net Cash Flow* with 1-click date presets (*This Month*, *Last Month*, *This Year*, *All Time*).
+- **Master Virtualized Ledger:** Render 100,000+ transactions effortlessly with `@tanstack/react-virtual` at 60/120fps.
 - **Inline Split Transactions (`Cmd+S`):** Expand child split rows underneath any transaction with real-time zero-float remainder balancing (`0,00 €` check).
+- **Needs Categorization Inbox & Floating Batch Actions:** 1-click triage filter for unassigned transactions and a floating batch action bar for bulk categorization, bulk merchant assignment, bulk reconciliation, and deletion.
+- **Monthly Category Budgets:** Track monthly spending against targets with visual progress bars (Safe, Warning, Over Budget), over-budget alerts, and *Remaining Safe-to-Spend* metrics.
+- **Recurring Subscriptions & Bills Schedule:** Track recurring obligations with auto-detection of paid vs upcoming bills, monthly fixed commitments KPI, and chronological calendar timeline.
+- **Monthly Financial Health Report Card:** Deterministic 100-point financial health score and letter grades (**A+** to **D**) across 4 pillars (Savings Rate, Budget Discipline, Fixed Overhead, Cash Flow Growth) with month-over-month stepper and 1-page print/PDF export.
+- **Advanced CSV/TSV Importer & Column Mapper Wizard:** Drag-and-drop file dropper and raw text paste zone with live 5-row interactive column mapper and built-in bank presets (**CGD**, **Millennium bcp**, **Santander Totta**, **ActivoBank**, **Revolut**, **N26**).
 - **Internal Transfers & MB WAY Reimbursements:** Account-to-account transfers preserve net worth without inflating income/expense figures; incoming reimbursements directly net down expense categories.
-- **7-Stage Deterministic Ingestion Engine:**
-  - Clipboard HTML/plain-text and statement file parsing (CSV, TSV, XLSX, PDF).
-  - Character encoding auto-transcoding (`ISO-8859-1` / `Windows-1252` to clean `UTF-8`).
-  - In-memory PII scrubber masking Portuguese phone numbers, IBANs, and card PANs.
-  - BLAKE3 composite deduplication engine with same-day sequence indexing.
-  - 3-tier categorization engine (Exact/Regex $\to$ Longest substring $\to$ Jaro-Winkler fuzzy fallback).
+- **Full Taxonomy CRUD:** Complete visual hierarchy management for 3-level Categories and Counterparty Entities with default category inheritance.
+- **Route-Level Code Splitting & Resilient Error Boundaries:** Instant first-paint ledger load via `React.lazy` + `<Suspense>` module chunking and self-healing `<ErrorBoundary>` recovery.
 - **Dual-Runtime Persistence:**
   - **Native Desktop:** SQLCipher (AES-256-CBC + HMAC-SHA512) page-level encrypted `.finfolio` vault with Argon2id KDF and `mlock` page locking.
   - **Browser Preview:** Automatic `localStorage` bi-directional synchronization, allowing full testing in any modern web browser without native compilation.
@@ -71,7 +72,7 @@ You can launch and try FinFolio directly in your web browser with zero native bu
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/fin-folio.git
+git clone https://github.com/jbveiga/fin-folio.git
 cd fin-folio
 
 # Install dependencies

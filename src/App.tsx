@@ -1,23 +1,65 @@
-import { useEffect, useState } from "react";
+import React, { lazy, Suspense, useEffect, useState } from "react";
 import { LeftNavigationRail } from "./components/LeftNavigationRail";
 import { TopContextHeader } from "./components/TopContextHeader";
 import { VirtualizedLedgerView } from "./components/VirtualizedLedgerView";
-import { AnalyticsView } from "./components/AnalyticsView";
-import { BudgetsView } from "./components/BudgetsView";
-import { RecurringView } from "./components/RecurringView";
-import { ReportCardView } from "./components/ReportCardView";
-import { ImportStagingView } from "./components/ImportStagingView";
-import {
-  ImportRulesView,
-  TaxonomyView,
-  VaultSettingsView,
-} from "./components/TaxonomyAndRulesView";
 import { CommandPaletteModal } from "./components/CommandPaletteModal";
 import { MobileBottomBar } from "./components/MobileBottomBar";
 import { MobileAccountDrawer } from "./components/MobileAccountDrawer";
 import { MobileQuickAddModal } from "./components/MobileQuickAddModal";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useFinFolioStore } from "./stores/useFinFolioStore";
+
+// Dynamically chunked secondary views for fast initial bundle paint
+const AnalyticsView = lazy(() =>
+  import("./components/AnalyticsView").then((m) => ({
+    default: m.AnalyticsView,
+  }))
+);
+const BudgetsView = lazy(() =>
+  import("./components/BudgetsView").then((m) => ({
+    default: m.BudgetsView,
+  }))
+);
+const RecurringView = lazy(() =>
+  import("./components/RecurringView").then((m) => ({
+    default: m.RecurringView,
+  }))
+);
+const ReportCardView = lazy(() =>
+  import("./components/ReportCardView").then((m) => ({
+    default: m.ReportCardView,
+  }))
+);
+const ImportStagingView = lazy(() =>
+  import("./components/ImportStagingView").then((m) => ({
+    default: m.ImportStagingView,
+  }))
+);
+const TaxonomyView = lazy(() =>
+  import("./components/TaxonomyAndRulesView").then((m) => ({
+    default: m.TaxonomyView,
+  }))
+);
+const ImportRulesView = lazy(() =>
+  import("./components/TaxonomyAndRulesView").then((m) => ({
+    default: m.ImportRulesView,
+  }))
+);
+const VaultSettingsView = lazy(() =>
+  import("./components/TaxonomyAndRulesView").then((m) => ({
+    default: m.VaultSettingsView,
+  }))
+);
+
+const ViewLoaderFallback: React.FC = () => (
+  <div className="h-full w-full flex flex-col items-center justify-center gap-3 bg-neutral-950 text-neutral-400">
+    <div className="w-8 h-8 rounded-full border-2 border-emerald-500/20 border-t-emerald-400 animate-spin" />
+    <span className="text-xs font-mono tracking-wider uppercase text-neutral-500">
+      Loading module...
+    </span>
+  </div>
+);
 
 export function App() {
   useKeyboardShortcuts();
@@ -53,15 +95,19 @@ export function App() {
         <TopContextHeader />
 
         <main className="flex-1 min-h-0 overflow-hidden">
-          {activeView === "ledger" && <VirtualizedLedgerView />}
-          {activeView === "analytics" && <AnalyticsView />}
-          {activeView === "budgets" && <BudgetsView />}
-          {activeView === "recurring" && <RecurringView />}
-          {activeView === "report" && <ReportCardView />}
-          {activeView === "staging" && <ImportStagingView />}
-          {activeView === "taxonomy" && <TaxonomyView />}
-          {activeView === "rules" && <ImportRulesView />}
-          {activeView === "settings" && <VaultSettingsView />}
+          <ErrorBoundary>
+            <Suspense fallback={<ViewLoaderFallback />}>
+              {activeView === "ledger" && <VirtualizedLedgerView />}
+              {activeView === "analytics" && <AnalyticsView />}
+              {activeView === "budgets" && <BudgetsView />}
+              {activeView === "recurring" && <RecurringView />}
+              {activeView === "report" && <ReportCardView />}
+              {activeView === "staging" && <ImportStagingView />}
+              {activeView === "taxonomy" && <TaxonomyView />}
+              {activeView === "rules" && <ImportRulesView />}
+              {activeView === "settings" && <VaultSettingsView />}
+            </Suspense>
+          </ErrorBoundary>
         </main>
       </div>
 
