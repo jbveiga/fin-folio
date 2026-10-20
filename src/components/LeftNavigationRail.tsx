@@ -123,7 +123,10 @@ export const LeftNavigationRail: React.FC = () => {
 
   if (isSidebarCollapsed) {
     return (
-      <aside className="hidden md:flex w-14 h-screen bg-neutral-900 border-r border-neutral-800 flex-col items-center py-3 justify-between shrink-0">
+      <aside
+        data-tauri-drag-region
+        className="hidden md:flex w-14 h-screen bg-neutral-900 border-r border-neutral-800 flex-col items-center pt-10 pb-3 justify-between shrink-0"
+      >
         <div className="flex flex-col items-center gap-3">
           <button
             onClick={toggleSidebar}
@@ -173,10 +176,13 @@ export const LeftNavigationRail: React.FC = () => {
 
   return (
     <aside className="hidden md:flex w-[240px] h-screen bg-neutral-900 border-r border-neutral-800 flex-col justify-between shrink-0 select-none">
-      {/* Top Brand + Primary Views */}
-      <div className="p-3 space-y-4">
-        <div className="flex items-center justify-between px-1">
-          <div className="flex items-center gap-2">
+      {/* Top Brand + Primary Views (with macOS traffic lights clearance & drag region) */}
+      <div data-tauri-drag-region className="pt-8 px-3 pb-3 space-y-4">
+        <div
+          data-tauri-drag-region
+          className="flex items-center justify-between px-1 cursor-default"
+        >
+          <div data-tauri-drag-region className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-md bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold text-xs">
               FF
             </div>

@@ -215,3 +215,46 @@ FinFolio is designed to be operated entirely without a mouse during statement im
 3. **The "Portuguese Encoding" Test:** Uploading an `ISO-8859-1` CSV from CGD or Millennium containing `"RESTAURAÇÃO"`, `"FARMÁCIA SÃO JOÃO"`, and `"1.450,75 €"` must render zero replacement characters and parse the integer value `145075`.
 4. **The "10-Year Ledger" Benchmark:** Loading a `.finfolio` vault seeded with 100,000 transactions across 8 accounts and toggling an account checkbox in the sidebar must recalculate all balances and refresh the grid in under `15ms`.
 5. **The "Retroactive Anchor" Test:** Setting an account's Anchor Balance to `1.000,00 €` on `2026-10-20`, and subsequently importing a historical statement from `2026-09-01` with `-200,00 €` in expenses, must leave the `2026-10-20` balance untouched at `1.000,00 €` while accurately calculating the `2026-09-01` historical balance as `1.200,00 €`.
+
+---
+
+## 9. Engineering Governance & Periodic Optimization Protocol (The 5/10 Cadence)
+
+To maintain long-term architectural integrity, performance standards (<16ms frame budget), zero-float financial math discipline, and documentation accuracy throughout rapid iterative development:
+
+### 9.1 The 5/10 Optimization Cadence
+
+```mermaid
+flowchart LR
+    M1["Milestones 1–4"] --> CP1["Minor Checkpoint (Every 5th)"]
+    CP1 --> M2["Milestones 6–9"]
+    M2 --> OP1["Major Optimization Sprint (Every 10th)"]
+    OP1 --> Next["Next Epoch"]
+```
+
+1. **Every 5 Feature Milestones (Minor Checkpoint Sprint):**
+   - **Bundle & Binary Audit:** Verify production bundle weights (`dist/` asset sizes) and Rust crate graph compile times.
+   - **Compiler & Linter Hygiene:** Run `cargo clippy --all-targets -- -D warnings` and TypeScript strict typechecks (`tsc --noEmit`).
+   - **Zero-Float Math Audit:** Grep codebase to ensure zero instances of floating-point arithmetic on currency values (`i64` minor units only).
+   - **Brand Hygiene Scan:** Automated repository scan to verify zero occurrences of prohibited external brand mentions.
+
+2. **Every 10 Feature Milestones (Major Architectural Optimization Sprint):**
+   - **Full Architectural Refactoring:** Review monolithic store interfaces, decompose slices, and eliminate technical debt.
+   - **Performance Profiling:** Validate the `<16ms` virtualized grid frame budget under 100,000+ transaction loads.
+   - **Storage Engine & Data Layer Health:** Audit page encryption, WAL checkpoints, and browser IndexedDB quota health.
+   - **UI/UX Consistency Audit:** Cross-device ergonomics review (desktop, tablet, mobile web, PWA safe areas).
+   - **Documentation Synchronization:** Complete synchronization across `app-bible.md`, `README.md`, and design specifications.
+
+### 9.2 Milestone Epoch History
+
+- **Epoch 1 (Milestones 1.0 – 1.9 Completed):**
+  - *M1.0:* Local-first SQLite/SQLCipher vault engine & 13 Rust core unit tests passing.
+  - *M1.1:* Multi-Account Switcher editing, Web Preview sandbox reset, ledger click-to-filter.
+  - *M1.2:* Cash Flow Analytics view, 1-click Date Range Presets, JSON web vault backup/restore.
+  - *M1.3:* Needs Categorization Triage Inbox, multi-row selection, floating batch actions bar, taxonomy CRUD.
+  - *M1.4:* Monthly Category Budgets (`BudgetsView.tsx`) & Rule Auto-Categorization engine.
+  - *M1.5:* Recurring Expenses, Subscriptions & Bills Schedule (`RecurringView.tsx`) with paid vs upcoming tracking.
+  - *M1.6:* Advanced CSV/TSV File Dropper & 5-Row Column Mapper Wizard with 6 bank presets.
+  - *M1.7:* Monthly Financial Health Report Card (`ReportCardView.tsx`) with 100-point score & letter grades (A+ to D).
+  - *M1.8:* Route-level code splitting (`React.lazy`), React Error Boundary, contextual empty states, search debounce.
+  - *M1.9:* IndexedDB High-Capacity Storage Adapter (500MB+) with auto-migration from `localStorage`.

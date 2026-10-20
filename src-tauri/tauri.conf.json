@@ -16,7 +16,13 @@
         "width": 1440,
         "height": 900,
         "minWidth": 1024,
-        "minHeight": 640
+        "minHeight": 640,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 18,
+          "y": 18
+        }
       }
     ],
     "security": {
@@ -26,6 +32,13 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "category": "public.app-category.finance",
+    "shortDescription": "Local-First Personal Finance",
+    "longDescription": "A high-performance, local-first, zero-knowledge personal finance application with deterministic statement ingestion.",
+    "copyright": "Copyright © 2026 FinFolio Team",
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

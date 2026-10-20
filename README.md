@@ -4,6 +4,7 @@
 > Designed for speed, privacy, and keyboard-driven ledger management.
 
 [![Live Web Demo](https://img.shields.io/badge/Live%20Demo-jbveiga.github.io%2Ffin--folio-10b981?style=for-the-badge&logo=github)](https://jbveiga.github.io/fin-folio/)
+[![Desktop Releases](https://img.shields.io/badge/Desktop%20Installers-macOS%20%7C%20Windows%20%7C%20Linux-8b5cf6?style=for-the-badge&logo=apple)](https://github.com/jbveiga/fin-folio/releases)
 [![Local-First](https://img.shields.io/badge/Security-Local--First%20%26%20Zero--Knowledge-10b981.svg)](#core-architectural-tenets)
 [![Zero-Float](https://img.shields.io/badge/Financial%20Math-Zero--Float%20(i64%20Cents)-0284c7.svg)](#core-architectural-tenets)
 [![Tauri v2](https://img.shields.io/badge/Platform-Tauri%20v2%20(Rust%20%2B%20React)-8b5cf6.svg)](#technology-stack)
@@ -17,6 +18,14 @@ You can try FinFolio immediately without installing any software:
 👉 **[Launch Live Web Demo (https://jbveiga.github.io/fin-folio/)](https://jbveiga.github.io/fin-folio/)**
 
 *The web demo runs client-side with full asynchronous `IndexedDB` persistence (500MB+ capacity, with automatic legacy `localStorage` migration)—all your accounts, splits, and categories remain saved in your browser.*
+
+### 🖥️ Native Desktop Installers (macOS, Windows, Linux)
+
+For maximum security and offline air-gapped performance with encrypted SQLCipher `.finfolio` storage:
+
+- **macOS (Universal / Apple Silicon & Intel):** Download the `.dmg` installer from [Latest Releases](https://github.com/jbveiga/fin-folio/releases).
+- **Windows (x64):** Download the `.msi` or `.exe` installer from [Latest Releases](https://github.com/jbveiga/fin-folio/releases).
+- **Linux (x64):** Download the `.deb` or `.AppImage` package from [Latest Releases](https://github.com/jbveiga/fin-folio/releases).
 
 ---
 
@@ -90,14 +99,14 @@ To run the native desktop version backed by the encrypted Rust SQLite/SQLCipher 
 
 ```bash
 # Run desktop app in development mode
-npm run tauri dev
+npm run tauri:dev
 ```
 
-### 3. Production Build
+### 3. Production Desktop Installer Build
 
 ```bash
-# Build native desktop installers (.dmg, .msi, .deb)
-npm run tauri build
+# Build native desktop installers (.dmg, .msi, .deb, .AppImage)
+npm run tauri:build
 ```
 
 ---

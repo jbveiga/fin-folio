@@ -74,7 +74,10 @@ export const TopContextHeader: React.FC = () => {
     .reduce((acc, s) => acc + s.current_balance_cents, 0);
 
   return (
-    <header className="border-b border-neutral-800 bg-neutral-900/90 backdrop-blur-sm shrink-0 pt-[max(0px,env(safe-area-inset-top))]">
+    <header
+      data-tauri-drag-region
+      className="border-b border-neutral-800 bg-neutral-900/90 backdrop-blur-sm shrink-0 select-none pt-[max(0px,env(safe-area-inset-top))]"
+    >
       {statusBannerMessage && (
         <div className="bg-emerald-500/15 border-b border-emerald-500/30 px-3 md:px-4 py-1.5 flex items-center justify-between text-xs text-emerald-300">
           <span className="font-mono truncate">{statusBannerMessage}</span>

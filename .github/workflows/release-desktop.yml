@@ -1,0 +1,98 @@
+name: Release Desktop App
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag (e.g. v2.0.0)'
+        required: true
+        default: 'v2.0.0'
+
+concurrency:
+  group: release-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            target: 'x86_64-apple-darwin'
+            args: '--target universal-apple-darwin'
+          - platform: 'windows-latest'
+            target: 'x86_64-pc-windows-msvc'
+            args: ''
+          - platform: 'ubuntu-22.04'
+            target: 'x86_64-unknown-linux-gnu'
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Linux System Dependencies (Ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Build Tauri Desktop Applications
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name || github.event.inputs.version }}
+          releaseName: 'FinFolio ${{ github.ref_name || github.event.inputs.version }}'
+          releaseBody: |
+            ## FinFolio ${{ github.ref_name || github.event.inputs.version }}
+            
+            ### Highlights
+            - Local-First, Zero-Knowledge `.finfolio` Vault Engine (SQLCipher AES-256-CBC)
+            - Multi-Account Switcher with sub-5ms reactive balance recalculation
+            - High-performance virtualized transaction ledger (100k+ rows at 60fps)
+            - Inline split transactions (`Cmd+S`) with zero-float remainder balancing
+            - Monthly Category Budgets & Safe-to-Spend tracking
+            - Recurring Expenses, Subscriptions & Bills Schedule
+            - Advanced CSV/TSV Column Mapping Wizard with Portuguese & European presets
+            - Monthly Financial Health Report Card with letter grades (A+ to D)
+            - High-capacity IndexedDB engine (500MB+) for web & mobile PWA
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
