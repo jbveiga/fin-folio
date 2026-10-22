@@ -18,10 +18,34 @@ src-tauri/gen/schemas/
 
 # OS & Environment files
 .DS_Store
+Thumbs.db
+*.log
 .env
 .env.*
-*.log
+!.env.example
 
-# Internal Agent Roles & Metadata (Orchestrator)
+# Private Configuration Files & Credentials (API Keys, MCP, & Secrets)
+mcp_config.json
+.mcp_config.json
+*mcp*.json
+credentials.json
+secrets.json
+*.pem
+*.key
+*.cert
+*.pfx
+*.p12
+
+# Internal Agent Roles, Tool Configurations & Metadata
 .chat-roles.json
 .chat-roles.md
+.project_agents.json
+.project-roles.json
+.agents/
+.gemini/
+
+# Local IDE & Editor Settings
+.vscode/*.local.*
+.idea/
+*.sublime-project
+*.sublime-workspace
