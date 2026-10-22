@@ -996,6 +996,160 @@ export const ipc = {
     persistFallbackDb();
   },
 
+  async mergeCategories(sourceId: string, targetId: string): Promise<void> {
+    if (isTauriRuntime()) {
+      return invoke("category_merge", { sourceId, targetId });
+    }
+    await ensureFallbackDbHydrated();
+    const source = fallbackDb.categories.find((c) => c.id === sourceId);
+    const target = fallbackDb.categories.find((c) => c.id === targetId);
+    if (!source || !target) {
+      throw new Error("Source or target category not found");
+    }
+    if (source.direction !== target.direction) {
+      throw new Error(
+        `Direction mismatch: cannot merge ${source.direction} into ${target.direction}`
+      );
+    }
+
+    // 1. Repoint historical transaction splits
+    for (const item of fallbackDb.transactions) {
+      item.splits = item.splits.map((sp) =>
+        sp.category_id === sourceId ? { ...sp, category_id: targetId } : sp
+      );
+    }
+
+    // 2. Repoint entities default_category_id
+    fallbackDb.entities = fallbackDb.entities.map((e) =>
+      e.default_category_id === sourceId
+        ? { ...e, default_category_id: targetId }
+        : e
+    );
+
+    // 3. Repoint and deduplicate import rules
+    const targetRules = fallbackDb.rules.filter(
+      (r: ImportRule) => r.assigned_category_id === targetId
+    );
+    const updatedRules: ImportRule[] = [];
+    for (const rule of fallbackDb.rules) {
+      if (rule.assigned_category_id === sourceId) {
+        const existing = targetRules.find(
+          (tr: ImportRule) =>
+            tr.pattern_string.toLowerCase() ===
+              rule.pattern_string.toLowerCase() &&
+            tr.match_mode === rule.match_mode
+        );
+        if (existing) {
+          existing.hit_count = (existing.hit_count || 0) + (rule.hit_count || 0);
+          continue;
+        } else {
+          updatedRules.push({ ...rule, assigned_category_id: targetId });
+        }
+      } else {
+        updatedRules.push(rule);
+      }
+    }
+    fallbackDb.rules = updatedRules;
+
+    // 4. Reparent active child categories
+    fallbackDb.categories = fallbackDb.categories.map((c) =>
+      c.parent_id === sourceId ? { ...c, parent_id: targetId } : c
+    );
+
+    // 5. Consolidate monthly budget targets
+    if (source.monthly_budget_cents) {
+      target.monthly_budget_cents =
+        (target.monthly_budget_cents || 0) + source.monthly_budget_cents;
+    }
+
+    // 6. Prune source category
+    fallbackDb.categories = fallbackDb.categories.filter((c) => c.id !== sourceId);
+    persistFallbackDb();
+  },
+
+  async reorderCategory(
+    categoryId: string,
+    direction: "up" | "down" | "nest" | "outdent"
+  ): Promise<Category[]> {
+    const categories = await this.listCategories();
+    const category = categories.find((c) => c.id === categoryId);
+    if (!category) return categories;
+
+    const getLevel = (cat: Category): number => {
+      let lvl = 1;
+      let curr = cat;
+      while (curr.parent_id) {
+        lvl++;
+        const p = categories.find((c) => c.id === curr.parent_id);
+        if (!p || lvl > 10) break;
+        curr = p;
+      }
+      return lvl;
+    };
+
+    const getSubtreeHeight = (catId: string): number => {
+      const children = categories.filter((c) => c.parent_id === catId);
+      if (children.length === 0) return 1;
+      let maxChildHeight = 0;
+      for (const child of children) {
+        maxChildHeight = Math.max(maxChildHeight, getSubtreeHeight(child.id));
+      }
+      return 1 + maxChildHeight;
+    };
+
+    const siblings = categories.filter((c) => c.parent_id === category.parent_id);
+    const sibIdx = siblings.findIndex((c) => c.id === categoryId);
+
+    if (direction === "up") {
+      if (sibIdx > 0) {
+        const prevSibling = siblings[sibIdx - 1];
+        const idxA = categories.findIndex((c) => c.id === category.id);
+        const idxB = categories.findIndex((c) => c.id === prevSibling.id);
+        const updated = [...categories];
+        [updated[idxA], updated[idxB]] = [updated[idxB], updated[idxA]];
+        if (!isTauriRuntime()) {
+          fallbackDb.categories = updated;
+          persistFallbackDb();
+        }
+        return updated;
+      }
+    } else if (direction === "down") {
+      if (sibIdx < siblings.length - 1) {
+        const nextSibling = siblings[sibIdx + 1];
+        const idxA = categories.findIndex((c) => c.id === category.id);
+        const idxB = categories.findIndex((c) => c.id === nextSibling.id);
+        const updated = [...categories];
+        [updated[idxA], updated[idxB]] = [updated[idxB], updated[idxA]];
+        if (!isTauriRuntime()) {
+          fallbackDb.categories = updated;
+          persistFallbackDb();
+        }
+        return updated;
+      }
+    } else if (direction === "nest") {
+      if (sibIdx > 0) {
+        const prevSibling = siblings[sibIdx - 1];
+        const prevLevel = getLevel(prevSibling);
+        const subtreeH = getSubtreeHeight(category.id);
+        if (prevLevel + subtreeH <= 3) {
+          const updatedCat: Category = { ...category, parent_id: prevSibling.id };
+          await this.saveCategory(updatedCat);
+          return this.listCategories();
+        }
+      }
+    } else if (direction === "outdent") {
+      if (category.parent_id) {
+        const parent = categories.find((c) => c.id === category.parent_id);
+        const newParentId = parent?.parent_id || null;
+        const updatedCat: Category = { ...category, parent_id: newParentId };
+        await this.saveCategory(updatedCat);
+        return this.listCategories();
+      }
+    }
+
+    return categories;
+  },
+
   async listEntities(): Promise<Entity[]> {
     if (isTauriRuntime()) {
       return invoke("entity_list");

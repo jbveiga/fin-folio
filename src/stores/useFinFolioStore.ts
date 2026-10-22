@@ -6,6 +6,7 @@ import {
   ActiveView,
   BankProfile,
   Category,
+  CategoryMergeImpactPreview,
   Cents,
   CurrencyCode,
   Entity,
@@ -151,6 +152,15 @@ interface FinFolioState {
     budgetCents: Cents | null
   ) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
+  previewCategoryMerge: (
+    sourceId: string,
+    targetId: string
+  ) => CategoryMergeImpactPreview;
+  mergeCategories: (sourceId: string, targetId: string) => Promise<void>;
+  reorderCategory: (
+    categoryId: string,
+    direction: "up" | "down" | "nest" | "outdent"
+  ) => Promise<void>;
   saveEntity: (ent: Entity) => Promise<void>;
   deleteEntity: (id: string) => Promise<void>;
   saveRule: (rule: ImportRule) => Promise<void>;
@@ -808,6 +818,147 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
     ]);
     set({ categories, entities });
     await get().refreshLedger();
+  },
+
+  previewCategoryMerge: (sourceId, targetId) => {
+    const { categories, transactions, entities, rules } = get();
+    const sourceCategory = categories.find((c) => c.id === sourceId);
+    const targetCategory = categories.find((c) => c.id === targetId);
+
+    if (!sourceCategory || !targetCategory) {
+      return {
+        sourceCategory: sourceCategory || ({} as Category),
+        targetCategory: targetCategory || ({} as Category),
+        affectedTransactionCount: 0,
+        affectedRuleCount: 0,
+        affectedEntityCount: 0,
+        sourceBudgetCents: null,
+        targetBudgetCents: null,
+        combinedBudgetCents: null,
+        hasChildCategories: false,
+        isValid: false,
+        validationError: "Category not found",
+      };
+    }
+
+    if (sourceId === targetId) {
+      return {
+        sourceCategory,
+        targetCategory,
+        affectedTransactionCount: 0,
+        affectedRuleCount: 0,
+        affectedEntityCount: 0,
+        sourceBudgetCents: sourceCategory.monthly_budget_cents ?? null,
+        targetBudgetCents: targetCategory.monthly_budget_cents ?? null,
+        combinedBudgetCents: targetCategory.monthly_budget_cents ?? null,
+        hasChildCategories: false,
+        isValid: false,
+        validationError: "Cannot merge category into itself",
+      };
+    }
+
+    if (sourceCategory.direction !== targetCategory.direction) {
+      return {
+        sourceCategory,
+        targetCategory,
+        affectedTransactionCount: 0,
+        affectedRuleCount: 0,
+        affectedEntityCount: 0,
+        sourceBudgetCents: sourceCategory.monthly_budget_cents ?? null,
+        targetBudgetCents: targetCategory.monthly_budget_cents ?? null,
+        combinedBudgetCents: null,
+        hasChildCategories: false,
+        isValid: false,
+        validationError: `Direction mismatch: cannot merge ${sourceCategory.direction} into ${targetCategory.direction}`,
+      };
+    }
+
+    let isDescendant = false;
+    let curr: Category | undefined = targetCategory;
+    while (curr?.parent_id) {
+      if (curr.parent_id === sourceId) {
+        isDescendant = true;
+        break;
+      }
+      curr = categories.find((c) => c.id === curr!.parent_id);
+    }
+
+    if (isDescendant) {
+      return {
+        sourceCategory,
+        targetCategory,
+        affectedTransactionCount: 0,
+        affectedRuleCount: 0,
+        affectedEntityCount: 0,
+        sourceBudgetCents: sourceCategory.monthly_budget_cents ?? null,
+        targetBudgetCents: targetCategory.monthly_budget_cents ?? null,
+        combinedBudgetCents: null,
+        hasChildCategories: false,
+        isValid: false,
+        validationError:
+          "Cannot merge category into its own descendant subcategory",
+      };
+    }
+
+    const hasChildCategories = categories.some((c) => c.parent_id === sourceId);
+
+    const affectedTxCount = transactions.filter((t) =>
+      t.splits.some((s) => s.category_id === sourceId)
+    ).length;
+
+    const affectedRuleCount = rules.filter(
+      (r) => r.assigned_category_id === sourceId
+    ).length;
+
+    const affectedEntityCount = entities.filter(
+      (e) => e.default_category_id === sourceId
+    ).length;
+
+    const sourceBudgetCents = sourceCategory.monthly_budget_cents ?? null;
+    const targetBudgetCents = targetCategory.monthly_budget_cents ?? null;
+    const combinedBudgetCents =
+      sourceBudgetCents !== null || targetBudgetCents !== null
+        ? (sourceBudgetCents || 0) + (targetBudgetCents || 0)
+        : null;
+
+    return {
+      sourceCategory,
+      targetCategory,
+      affectedTransactionCount: affectedTxCount,
+      affectedRuleCount,
+      affectedEntityCount,
+      sourceBudgetCents,
+      targetBudgetCents,
+      combinedBudgetCents,
+      hasChildCategories,
+      isValid: true,
+    };
+  },
+
+  mergeCategories: async (sourceId, targetId) => {
+    const preview = get().previewCategoryMerge(sourceId, targetId);
+    if (!preview.isValid) {
+      throw new Error(preview.validationError || "Invalid category merge");
+    }
+
+    await ipc.mergeCategories(sourceId, targetId);
+
+    const [categories, entities, rules] = await Promise.all([
+      ipc.listCategories(),
+      ipc.listEntities(),
+      ipc.listRules(),
+    ]);
+
+    set({ categories, entities, rules });
+    await get().refreshLedger();
+    set({
+      statusBannerMessage: `✓ Merged category "${preview.sourceCategory.name}" into "${preview.targetCategory.name}" (${preview.affectedTransactionCount} txs repointed).`,
+    });
+  },
+
+  reorderCategory: async (categoryId, direction) => {
+    const updated = await ipc.reorderCategory(categoryId, direction);
+    set({ categories: updated });
   },
 
   saveEntity: async (ent) => {

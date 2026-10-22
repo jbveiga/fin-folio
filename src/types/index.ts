@@ -172,6 +172,27 @@ export interface Category {
   monthly_budget_cents?: Cents | null;
 }
 
+export interface CategoryMergeImpactPreview {
+  sourceCategory: Category;
+  targetCategory: Category;
+  affectedTransactionCount: number;
+  affectedRuleCount: number;
+  affectedEntityCount: number;
+  sourceBudgetCents: number | null;
+  targetBudgetCents: number | null;
+  combinedBudgetCents: number | null;
+  hasChildCategories: boolean;
+  isValid: boolean;
+  validationError?: string;
+}
+
+export interface CategoryTreeNode extends Category {
+  level: number; // 1, 2, or 3
+  children: CategoryTreeNode[];
+  transactionCount: number;
+  totalSubtreeTransactionCount: number;
+}
+
 export interface CategoryBudgetProgress {
   category: Category;
   parentCategory: Category | null;

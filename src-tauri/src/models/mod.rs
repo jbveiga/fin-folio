@@ -174,6 +174,8 @@ pub struct Category {
     pub name: String,
     pub direction: CategoryDirection,
     pub color_hex: String,
+    #[serde(default)]
+    pub monthly_budget_cents: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

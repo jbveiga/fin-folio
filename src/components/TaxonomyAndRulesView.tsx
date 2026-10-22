@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   FolderTree,
   Building2,
@@ -18,6 +18,13 @@ import {
   Database,
   AlertTriangle,
   Coins,
+  ChevronDown,
+  ChevronRight,
+  ArrowUp,
+  ArrowDown,
+  ArrowRight,
+  ArrowLeft,
+  GitMerge,
 } from "lucide-react";
 import { useFinFolioStore } from "../stores/useFinFolioStore";
 import { ipc } from "../services/ipc";
@@ -25,11 +32,14 @@ import { StorageInfo } from "../services/indexedDbVault";
 import {
   Category,
   CategoryDirection,
+  CategoryTreeNode,
   CurrencyCode,
   Entity,
   MatchMode,
 } from "../types";
 import { CURRENCIES } from "../utils/fx";
+import { formatCurrency } from "../utils/money";
+import { CategoryMergeModal } from "./CategoryMergeModal";
 
 const CURATED_SWATCHES = [
   "#10b981", // Emerald
@@ -50,8 +60,11 @@ export const TaxonomyView: React.FC = () => {
   const {
     categories,
     entities,
+    transactions,
+    baseCurrency,
     saveCategory,
     deleteCategory,
+    reorderCategory,
     saveEntity,
     deleteEntity,
     setStatusBanner,
@@ -64,10 +77,80 @@ export const TaxonomyView: React.FC = () => {
     useState<CategoryDirection>("Expense");
   const [catColor, setCatColor] = useState("#10b981");
 
+  const [collapsedCatIds, setCollapsedCatIds] = useState<Set<string>>(
+    new Set()
+  );
+  const [mergeSourceCat, setMergeSourceCat] = useState<Category | null>(null);
+
+  const toggleCollapse = (id: string) => {
+    setCollapsedCatIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const [editingEntId, setEditingEntId] = useState<string | null>(null);
   const [entName, setEntName] = useState("");
   const [entDefaultCatId, setEntDefaultCatId] = useState("");
   const [entNif, setEntNif] = useState("");
+
+  const directTxCountMap = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const tx of transactions) {
+      for (const sp of tx.splits) {
+        if (sp.category_id) {
+          counts.set(sp.category_id, (counts.get(sp.category_id) || 0) + 1);
+        }
+      }
+    }
+    return counts;
+  }, [transactions]);
+
+  // Build recursive tree nodes with subtree transaction count rollups
+  const categoryTree = useMemo<CategoryTreeNode[]>(() => {
+    const buildSubtree = (
+      parentId: string | null,
+      level: number
+    ): CategoryTreeNode[] => {
+      const matching = categories.filter(
+        (c) => (c.parent_id || null) === parentId
+      );
+      return matching.map((cat) => {
+        const children = level < 3 ? buildSubtree(cat.id, level + 1) : [];
+        const directCount = directTxCountMap.get(cat.id) || 0;
+        const totalSubtree =
+          directCount +
+          children.reduce(
+            (sum, ch) => sum + ch.totalSubtreeTransactionCount,
+            0
+          );
+        return {
+          ...cat,
+          level,
+          children,
+          transactionCount: directCount,
+          totalSubtreeTransactionCount: totalSubtree,
+        };
+      });
+    };
+    return buildSubtree(null, 1);
+  }, [categories, directTxCountMap]);
+
+  // Category path label helper
+  const categoryPathMap = useMemo(() => {
+    const map = new Map<string, string>();
+    const getPath = (cat: Category): string => {
+      if (!cat.parent_id) return cat.name;
+      const parent = categories.find((c) => c.id === cat.parent_id);
+      return parent ? `${getPath(parent)} › ${cat.name}` : cat.name;
+    };
+    for (const c of categories) {
+      map.set(c.id, getPath(c));
+    }
+    return map;
+  }, [categories]);
 
   const startEditCategory = (cat: Category) => {
     setEditingCatId(cat.id);
@@ -149,7 +232,220 @@ export const TaxonomyView: React.FC = () => {
     resetEntityForm();
   };
 
-  const level1 = categories.filter((c) => !c.parent_id);
+  const getSubtreeHeight = (node: CategoryTreeNode): number => {
+    if (node.children.length === 0) return 1;
+    return 1 + Math.max(...node.children.map(getSubtreeHeight));
+  };
+
+  const renderCategoryNode = (
+    node: CategoryTreeNode,
+    siblings: CategoryTreeNode[],
+    siblingIdx: number
+  ) => {
+    const isCollapsed = collapsedCatIds.has(node.id);
+    const hasChildren = node.children.length > 0;
+    const canMoveUp = siblingIdx > 0;
+    const canMoveDown = siblingIdx < siblings.length - 1;
+    const canOutdent = node.parent_id !== null;
+    const subtreeH = getSubtreeHeight(node);
+    const canNest = siblingIdx > 0 && node.level + subtreeH <= 3;
+
+    return (
+      <div key={node.id} className="space-y-1">
+        <div
+          className={`group relative flex items-center justify-between rounded-lg border transition-colors py-1.5 pr-2 ${
+            node.level === 1
+              ? "pl-2.5 bg-neutral-950/80 border-neutral-800 hover:border-neutral-700"
+              : node.level === 2
+              ? "pl-8 bg-neutral-950/40 border-neutral-800/80 hover:border-neutral-700"
+              : "pl-14 bg-neutral-950/20 border-neutral-900 hover:border-neutral-750"
+          }`}
+        >
+          {/* Elbow guide lines for Level 2 and Level 3 */}
+          {node.level === 2 && (
+            <div className="absolute left-3 top-0 bottom-1/2 w-3.5 border-l border-b border-neutral-800 rounded-bl pointer-events-none" />
+          )}
+          {node.level === 3 && (
+            <>
+              <div className="absolute left-3 top-0 bottom-0 w-px bg-neutral-800/60 pointer-events-none" />
+              <div className="absolute left-8 top-0 bottom-1/2 w-3.5 border-l border-b border-neutral-800 rounded-bl pointer-events-none" />
+            </>
+          )}
+
+          {/* Left: Carat, Color Pip, Label, Rollup Badges */}
+          <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-2">
+            {hasChildren ? (
+              <button
+                type="button"
+                onClick={() => toggleCollapse(node.id)}
+                className="p-0.5 rounded hover:bg-neutral-800 text-neutral-400 hover:text-white shrink-0"
+                title={
+                  isCollapsed ? "Expand subcategories" : "Collapse subcategories"
+                }
+              >
+                {isCollapsed ? (
+                  <ChevronRight className="w-3.5 h-3.5" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5" />
+                )}
+              </button>
+            ) : (
+              <span className="w-4 shrink-0" />
+            )}
+
+            <span
+              className="w-2.5 h-2.5 rounded-full shrink-0 shadow-sm"
+              style={{ backgroundColor: node.color_hex }}
+            />
+
+            <span
+              className={`truncate font-medium ${
+                node.level === 1
+                  ? "text-neutral-100 font-semibold"
+                  : node.level === 2
+                  ? "text-neutral-200"
+                  : "text-neutral-300"
+              }`}
+            >
+              {node.name}
+            </span>
+
+            {node.level === 1 && (
+              <span
+                className={`text-[9px] px-1.5 py-0.2 rounded font-mono shrink-0 ${
+                  node.direction === "Income"
+                    ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                    : "bg-rose-500/15 text-rose-400 border border-rose-500/30"
+                }`}
+              >
+                {node.direction}
+              </span>
+            )}
+
+            {/* Rollup Badges */}
+            <div className="hidden sm:flex items-center gap-1 shrink-0 ml-auto">
+              {hasChildren && (
+                <span className="px-1.5 py-0.2 rounded bg-neutral-800 border border-neutral-700/60 text-neutral-400 text-[10px] font-mono">
+                  {node.children.length}{" "}
+                  {node.children.length === 1 ? "subcat" : "subcats"}
+                </span>
+              )}
+              {node.totalSubtreeTransactionCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded bg-sky-500/10 border border-sky-500/25 text-sky-300 text-[10px] font-mono">
+                  {node.totalSubtreeTransactionCount} txs
+                </span>
+              )}
+              {node.monthly_budget_cents && (
+                <span className="px-1.5 py-0.2 rounded bg-purple-500/10 border border-purple-500/25 text-purple-300 text-[10px] font-mono">
+                  {formatCurrency(node.monthly_budget_cents, baseCurrency)}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Right: Spatial Reorder Strip + Edit + Merge + Delete */}
+          <div className="flex items-center gap-0.5 shrink-0">
+            <div className="flex items-center gap-0.5 px-1 py-0.5 rounded bg-neutral-900 border border-neutral-800/80 mr-1">
+              <button
+                type="button"
+                disabled={!canMoveUp}
+                onClick={() => void reorderCategory(node.id, "up")}
+                title="Move Up (↑)"
+                className={`p-0.5 rounded transition-colors ${
+                  canMoveUp
+                    ? "text-neutral-400 hover:text-white hover:bg-neutral-800"
+                    : "text-neutral-700 cursor-not-allowed"
+                }`}
+              >
+                <ArrowUp className="w-3 h-3" />
+              </button>
+              <button
+                type="button"
+                disabled={!canMoveDown}
+                onClick={() => void reorderCategory(node.id, "down")}
+                title="Move Down (↓)"
+                className={`p-0.5 rounded transition-colors ${
+                  canMoveDown
+                    ? "text-neutral-400 hover:text-white hover:bg-neutral-800"
+                    : "text-neutral-700 cursor-not-allowed"
+                }`}
+              >
+                <ArrowDown className="w-3 h-3" />
+              </button>
+              <button
+                type="button"
+                disabled={!canNest}
+                onClick={() => void reorderCategory(node.id, "nest")}
+                title={
+                  canNest
+                    ? "Nest Under Preceding Sibling (→)"
+                    : "Cannot nest (depth limit or no preceding sibling)"
+                }
+                className={`p-0.5 rounded transition-colors ${
+                  canNest
+                    ? "text-neutral-400 hover:text-white hover:bg-neutral-800"
+                    : "text-neutral-700 cursor-not-allowed"
+                }`}
+              >
+                <ArrowRight className="w-3 h-3" />
+              </button>
+              <button
+                type="button"
+                disabled={!canOutdent}
+                onClick={() => void reorderCategory(node.id, "outdent")}
+                title={
+                  canOutdent
+                    ? "Outdent / Promote Up One Level (←)"
+                    : "Already top-level root category"
+                }
+                className={`p-0.5 rounded transition-colors ${
+                  canOutdent
+                    ? "text-neutral-400 hover:text-white hover:bg-neutral-800"
+                    : "text-neutral-700 cursor-not-allowed"
+                }`}
+              >
+                <ArrowLeft className="w-3 h-3" />
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => startEditCategory(node)}
+              title="Edit Category"
+              className="p-1 rounded text-neutral-400 hover:text-emerald-400 hover:bg-neutral-800 transition-colors"
+            >
+              <Pencil className="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setMergeSourceCat(node)}
+              title="Merge into Another Category (🔗)"
+              className="p-1 rounded text-neutral-400 hover:text-sky-400 hover:bg-neutral-800 transition-colors"
+            >
+              <GitMerge className="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleRequestDeleteCategory(node)}
+              title="Delete Category"
+              className="p-1 rounded text-neutral-500 hover:text-rose-400 hover:bg-neutral-800 transition-colors"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+
+        {/* Children Subtree */}
+        {hasChildren && !isCollapsed && (
+          <div className="space-y-1">
+            {node.children.map((child, idx) =>
+              renderCategoryNode(child, node.children, idx)
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 p-3 md:p-6 h-full overflow-y-auto bg-neutral-950 text-neutral-100">
@@ -207,7 +503,7 @@ export const TaxonomyView: React.FC = () => {
                 .filter((c) => c.id !== editingCatId)
                 .map((c) => (
                   <option key={c.id} value={c.id}>
-                    ↳ {c.name}
+                    ↳ {categoryPathMap.get(c.id) || c.name}
                   </option>
                 ))}
             </select>
@@ -265,127 +561,16 @@ export const TaxonomyView: React.FC = () => {
           </div>
         </form>
 
-        <div className="space-y-2 flex-1 overflow-y-auto pr-1 text-xs">
-          {level1.map((l1) => {
-            const level2 = categories.filter((c) => c.parent_id === l1.id);
-            return (
-              <div
-                key={l1.id}
-                className="rounded-lg bg-neutral-950/80 border border-neutral-800 p-2.5 space-y-1.5"
-              >
-                <div className="flex items-center justify-between font-semibold">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full"
-                      style={{ backgroundColor: l1.color_hex }}
-                    />
-                    <span>{l1.name}</span>
-                    <span
-                      className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                        l1.direction === "Income"
-                          ? "bg-emerald-500/15 text-emerald-400"
-                          : "bg-rose-500/15 text-rose-400"
-                      }`}
-                    >
-                      {l1.direction}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => startEditCategory(l1)}
-                      title="Edit Category"
-                      className="p-1 rounded text-neutral-400 hover:text-emerald-400 hover:bg-neutral-800"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleRequestDeleteCategory(l1)}
-                      title="Delete Category"
-                      className="p-1 rounded text-neutral-500 hover:text-rose-400 hover:bg-neutral-800"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {level2.map((l2) => {
-                  const level3 = categories.filter(
-                    (c) => c.parent_id === l2.id
-                  );
-                  return (
-                    <div key={l2.id} className="pl-5 space-y-1">
-                      <div className="flex items-center justify-between text-neutral-300">
-                        <div className="flex items-center gap-2">
-                          <span className="text-neutral-600">├─</span>
-                          <span
-                            className="w-2 h-2 rounded-full"
-                            style={{ backgroundColor: l2.color_hex }}
-                          />
-                          <span>{l2.name}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => startEditCategory(l2)}
-                            title="Edit Sub-Category"
-                            className="p-0.5 rounded text-neutral-500 hover:text-emerald-400"
-                          >
-                            <Pencil className="w-3 h-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleRequestDeleteCategory(l2)}
-                            title="Delete Sub-Category"
-                            className="p-0.5 rounded text-neutral-600 hover:text-rose-400"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {level3.map((l3) => (
-                        <div
-                          key={l3.id}
-                          className="pl-6 flex items-center justify-between text-neutral-400"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="text-neutral-700">└─</span>
-                            <span
-                              className="w-2 h-2 rounded-full"
-                              style={{ backgroundColor: l3.color_hex }}
-                            />
-                            <span>{l3.name}</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => startEditCategory(l3)}
-                              title="Edit Leaf Category"
-                              className="p-0.5 rounded text-neutral-500 hover:text-emerald-400"
-                            >
-                              <Pencil className="w-3 h-3" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void handleRequestDeleteCategory(l3)
-                              }
-                              title="Delete Leaf Category"
-                              className="p-0.5 rounded text-neutral-600 hover:text-rose-400"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+        <div className="space-y-1.5 flex-1 overflow-y-auto pr-1 text-xs">
+          {categoryTree.length === 0 ? (
+            <div className="text-center py-8 text-neutral-500">
+              No categories created yet.
+            </div>
+          ) : (
+            categoryTree.map((node: CategoryTreeNode, idx: number) =>
+              renderCategoryNode(node, categoryTree, idx)
+            )
+          )}
         </div>
       </div>
 
@@ -522,6 +707,12 @@ export const TaxonomyView: React.FC = () => {
           })}
         </div>
       </div>
+
+      <CategoryMergeModal
+        isOpen={Boolean(mergeSourceCat)}
+        sourceCategory={mergeSourceCat}
+        onClose={() => setMergeSourceCat(null)}
+      />
     </div>
   );
 };

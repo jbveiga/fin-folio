@@ -246,7 +246,8 @@ impl VaultEngine {
                 parent_id TEXT REFERENCES categories(id) ON DELETE RESTRICT,
                 name TEXT NOT NULL,
                 direction TEXT NOT NULL CHECK (direction IN ('Income', 'Expense')),
-                color_hex TEXT NOT NULL DEFAULT '#10b981'
+                color_hex TEXT NOT NULL DEFAULT '#10b981',
+                monthly_budget_cents INTEGER
             );
 
             -- 4. Entities (Counterparties: Merchants, Employers, Individuals, State bodies)
@@ -378,6 +379,11 @@ impl VaultEngine {
         let _ = self
             .conn
             .execute("ALTER TABLE accounts ADD COLUMN currency TEXT NOT NULL DEFAULT 'EUR';", []);
+
+        // Idempotent column migrations for backward compatibility (Milestone 2.4 Category Budgets)
+        let _ = self
+            .conn
+            .execute("ALTER TABLE categories ADD COLUMN monthly_budget_cents INTEGER;", []);
 
         Ok(())
     }
@@ -656,17 +662,19 @@ impl VaultEngine {
             name: name.to_string(),
             direction,
             color_hex: color_hex.to_string(),
+            monthly_budget_cents: None,
         };
 
         self.conn.execute(
-            "INSERT INTO categories (id, parent_id, name, direction, color_hex)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO categories (id, parent_id, name, direction, color_hex, monthly_budget_cents)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 category.id,
                 category.parent_id,
                 category.name,
                 category.direction.as_str(),
-                category.color_hex
+                category.color_hex,
+                category.monthly_budget_cents
             ],
         )?;
 
@@ -1027,7 +1035,7 @@ impl VaultEngine {
 
     pub fn list_categories(&self) -> Result<Vec<Category>, VaultError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, parent_id, name, direction, color_hex
+            "SELECT id, parent_id, name, direction, color_hex, monthly_budget_cents
              FROM categories ORDER BY name ASC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -1039,6 +1047,7 @@ impl VaultEngine {
                 direction: CategoryDirection::from_str(&dir_str)
                     .unwrap_or(CategoryDirection::Expense),
                 color_hex: row.get(4)?,
+                monthly_budget_cents: row.get(5)?,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -1166,21 +1175,24 @@ impl VaultEngine {
             name: category.name.trim().to_string(),
             direction: category.direction,
             color_hex: category.color_hex.clone(),
+            monthly_budget_cents: category.monthly_budget_cents,
         };
         self.conn.execute(
-            "INSERT INTO categories (id, parent_id, name, direction, color_hex)
-             VALUES (?1, ?2, ?3, ?4, ?5)
+            "INSERT INTO categories (id, parent_id, name, direction, color_hex, monthly_budget_cents)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(id) DO UPDATE SET
                 parent_id = excluded.parent_id,
                 name = excluded.name,
                 direction = excluded.direction,
-                color_hex = excluded.color_hex",
+                color_hex = excluded.color_hex,
+                monthly_budget_cents = excluded.monthly_budget_cents",
             params![
                 saved.id,
                 saved.parent_id,
                 saved.name,
                 saved.direction.as_str(),
-                saved.color_hex
+                saved.color_hex,
+                saved.monthly_budget_cents
             ],
         )?;
         Ok(saved)
@@ -1221,6 +1233,125 @@ impl VaultEngine {
             )?;
         }
         tx.execute("DELETE FROM categories WHERE id = ?1", params![category_id])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn merge_categories(
+        &mut self,
+        source_id: &str,
+        target_id: &str,
+    ) -> Result<(), VaultError> {
+        let tx = self.conn.transaction()?;
+
+        // Direction parity guardrail
+        let source_info: Option<(String, Option<i64>)> = tx
+            .query_row(
+                "SELECT direction, monthly_budget_cents FROM categories WHERE id = ?1",
+                params![source_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+
+        let target_info: Option<(String, Option<i64>)> = tx
+            .query_row(
+                "SELECT direction, monthly_budget_cents FROM categories WHERE id = ?1",
+                params![target_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+
+        let (src_dir, src_budget) = match source_info {
+            Some(s) => s,
+            None => {
+                return Err(VaultError::ValidationError(
+                    "Source category not found".to_string(),
+                ))
+            }
+        };
+        let (tgt_dir, _) = match target_info {
+            Some(t) => t,
+            None => {
+                return Err(VaultError::ValidationError(
+                    "Target category not found".to_string(),
+                ))
+            }
+        };
+
+        if src_dir != tgt_dir {
+            return Err(VaultError::ValidationError(format!(
+                "Direction mismatch: cannot merge {} into {}",
+                src_dir, tgt_dir
+            )));
+        }
+
+        // Consolidate monthly budget if source has one
+        if let Some(sb) = src_budget {
+            tx.execute(
+                "UPDATE categories SET monthly_budget_cents = COALESCE(monthly_budget_cents, 0) + ?1 WHERE id = ?2",
+                params![sb, target_id],
+            )?;
+        }
+
+        // Reparent child categories
+        tx.execute(
+            "UPDATE categories SET parent_id = ?1 WHERE parent_id = ?2",
+            params![target_id, source_id],
+        )?;
+
+        // Repoint historical transaction splits
+        tx.execute(
+            "UPDATE transaction_splits SET category_id = ?1 WHERE category_id = ?2",
+            params![target_id, source_id],
+        )?;
+
+        // Repoint entities default category
+        tx.execute(
+            "UPDATE entities SET default_category_id = ?1 WHERE default_category_id = ?2",
+            params![target_id, source_id],
+        )?;
+
+        // Repoint & deduplicate import rules
+        let mut rules_stmt = tx.prepare(
+            "SELECT id, pattern_string, match_mode, hit_count FROM import_rules WHERE assigned_category_id = ?1",
+        )?;
+        let src_rules: Vec<(String, String, String, i64)> = rules_stmt
+            .query_map(params![source_id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })?
+            .filter_map(Result::ok)
+            .collect();
+        drop(rules_stmt);
+
+        for (src_rule_id, pattern, mode, src_hits) in src_rules {
+            let existing_target_rule: Option<(String, i64)> = tx
+                .query_row(
+                    "SELECT id, hit_count FROM import_rules WHERE pattern_string = ?1 AND match_mode = ?2 AND assigned_category_id = ?3",
+                    params![pattern, mode, target_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()?;
+
+            if let Some((tgt_rule_id, tgt_hits)) = existing_target_rule {
+                tx.execute(
+                    "UPDATE import_rules SET hit_count = ?1 WHERE id = ?2",
+                    params![tgt_hits + src_hits, tgt_rule_id],
+                )?;
+                tx.execute(
+                    "DELETE FROM import_rules WHERE id = ?1",
+                    params![src_rule_id],
+                )?;
+            } else {
+                tx.execute(
+                    "UPDATE import_rules SET assigned_category_id = ?1 WHERE id = ?2",
+                    params![target_id, src_rule_id],
+                )?;
+            }
+        }
+
+        // Delete source category
+        tx.execute("DELETE FROM categories WHERE id = ?1", params![source_id])?;
+
         tx.commit()?;
         Ok(())
     }
@@ -2445,5 +2576,181 @@ mod tests {
             "Expected <15ms balance recalculation across 100k rows, took {}ms",
             balance_query_ms
         );
+    }
+
+    #[test]
+    fn test_atomic_category_merge() {
+        let mut vault = VaultEngine::open_in_memory().unwrap();
+        let acc = vault
+            .create_account("Millennium", AccountType::Checking, 100_000, "2026-10-01", true)
+            .unwrap();
+
+        // Target: Supermercado (Expense, 400.00 € budget)
+        let cat_target = vault
+            .create_category(None, "Supermercado", CategoryDirection::Expense, "#10b981")
+            .unwrap();
+        vault
+            .conn
+            .execute(
+                "UPDATE categories SET monthly_budget_cents = 40000 WHERE id = ?1",
+                params![cat_target.id],
+            )
+            .unwrap();
+
+        // Source: Compras de Supermercado (Expense, 150.00 € budget)
+        let cat_source = vault
+            .create_category(
+                None,
+                "Compras de Supermercado",
+                CategoryDirection::Expense,
+                "#34d399",
+            )
+            .unwrap();
+        vault
+            .conn
+            .execute(
+                "UPDATE categories SET monthly_budget_cents = 15000 WHERE id = ?1",
+                params![cat_source.id],
+            )
+            .unwrap();
+
+        // Income Category to test direction guardrail
+        let cat_income = vault
+            .create_category(None, "Salário", CategoryDirection::Income, "#0ea5e9")
+            .unwrap();
+
+        // Direction mismatch must fail
+        assert!(vault.merge_categories(&cat_income.id, &cat_target.id).is_err());
+
+        // Create entity with source category as default
+        let ent = vault
+            .create_entity("Pingo Doce", Some(&cat_source.id), None)
+            .unwrap();
+
+        // Create import rules:
+        // Rule 1: target has rule for "CONTINENTE"
+        vault
+            .create_import_rule(
+                crate::models::MatchMode::Contains,
+                "CONTINENTE",
+                None,
+                None,
+                Some(&cat_target.id),
+                100,
+            )
+            .unwrap();
+        // Update hit count to 14
+        vault.conn.execute("UPDATE import_rules SET hit_count = 14 WHERE pattern_string = 'CONTINENTE'", []).unwrap();
+
+        // Rule 2: source has duplicate rule for "CONTINENTE" with 6 hits
+        vault
+            .create_import_rule(
+                crate::models::MatchMode::Contains,
+                "CONTINENTE",
+                None,
+                None,
+                Some(&cat_source.id),
+                100,
+            )
+            .unwrap();
+        vault.conn.execute("UPDATE import_rules SET hit_count = 6 WHERE pattern_string = 'CONTINENTE' AND assigned_category_id = ?1", params![cat_source.id]).unwrap();
+
+        // Rule 3: source has unique rule for "PINGO DOCE" with 9 hits
+        vault
+            .create_import_rule(
+                crate::models::MatchMode::Contains,
+                "PINGO DOCE",
+                None,
+                None,
+                Some(&cat_source.id),
+                100,
+            )
+            .unwrap();
+        vault.conn.execute("UPDATE import_rules SET hit_count = 9 WHERE pattern_string = 'PINGO DOCE'", []).unwrap();
+
+        // Insert transactions under source category
+        vault
+            .insert_transaction_with_splits(
+                &acc.id,
+                Some(&ent.id),
+                "2026-10-10",
+                -22_990,
+                "PINGO DOCE",
+                "PINGO DOCE",
+                "merge_tx_1",
+                true,
+                vec![(Some(cat_source.id.clone()), None, -22_990, None)],
+            )
+            .unwrap();
+
+        // Execute merge
+        vault.merge_categories(&cat_source.id, &cat_target.id).unwrap();
+
+        // 1. Source category must be deleted
+        let src_count: i64 = vault
+            .conn
+            .query_row(
+                "SELECT count(*) FROM categories WHERE id = ?1",
+                params![cat_source.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(src_count, 0);
+
+        // 2. Target category budget must be consolidated (400.00 + 150.00 = 550.00 €)
+        let tgt_budget: Option<i64> = vault
+            .conn
+            .query_row(
+                "SELECT monthly_budget_cents FROM categories WHERE id = ?1",
+                params![cat_target.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tgt_budget, Some(55_000));
+
+        // 3. Transactions must be repointed to target category
+        let splits: Vec<String> = vault
+            .conn
+            .prepare("SELECT category_id FROM transaction_splits WHERE category_id = ?1")
+            .unwrap()
+            .query_map(params![cat_target.id], |r| r.get(0))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        assert_eq!(splits.len(), 1);
+
+        // 4. Entity default category must be repointed to target
+        let ent_cat: Option<String> = vault
+            .conn
+            .query_row(
+                "SELECT default_category_id FROM entities WHERE id = ?1",
+                params![ent.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(ent_cat, Some(cat_target.id.clone()));
+
+        // 5. Rules must be deduplicated:
+        // "CONTINENTE" rule consolidated to 14 + 6 = 20 hits
+        let cont_hits: i64 = vault
+            .conn
+            .query_row(
+                "SELECT hit_count FROM import_rules WHERE pattern_string = 'CONTINENTE' AND assigned_category_id = ?1",
+                params![cat_target.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(cont_hits, 20);
+
+        // "PINGO DOCE" rule repointed to target
+        let pd_rule_cat: String = vault
+            .conn
+            .query_row(
+                "SELECT assigned_category_id FROM import_rules WHERE pattern_string = 'PINGO DOCE'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(pd_rule_cat, cat_target.id);
     }
 }

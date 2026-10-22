@@ -327,6 +327,19 @@ fn category_delete(
 }
 
 #[tauri::command]
+fn category_merge(
+    state: State<'_, AppState>,
+    source_id: String,
+    target_id: String,
+) -> Result<(), String> {
+    with_vault(&state, |vault| {
+        vault
+            .merge_categories(&source_id, &target_id)
+            .map_err(|e| e.to_string())
+    })
+}
+
+#[tauri::command]
 fn entity_list(state: State<'_, AppState>) -> Result<Vec<Entity>, String> {
     with_vault(&state, |vault| {
         vault.list_entities().map_err(|e| e.to_string())
@@ -821,6 +834,7 @@ pub fn run() {
             category_list,
             category_save,
             category_delete,
+            category_merge,
             entity_list,
             entity_save,
             entity_delete,
