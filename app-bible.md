@@ -136,8 +136,19 @@ Each new transaction is evaluated against the user’s **Import Rules** table:
 
 ### 5.3 Internal Transfers & Reimbursements
 
-- **Account-to-Account Transfers:** Moving money from Checking to Savings (or paying off a Credit Card balance) is an internal asset shift. When marked as a `Transfer to [Account X]`, FinFolio links the entries to preserve net worth without inflating income or expense totals.
-- **Expense Reimbursements (The "MB WAY Dinner" Problem):** If a user pays `-60,00 €` for a group dinner (`Restauração`) and receives two `+20,00 €` MB WAY transfers from friends the next day, categorizing those incoming transfers directly against the `Restauração` expense category nets the category spend down to `-20,00 €` rather than falsely recording `+40,00 €` of income.
+#### 5.3.1 Internal Account-to-Account Transfers
+- **Net Worth Conservation Law:** Moving money from Checking to Savings (or paying off a Credit Card balance) is an internal asset shift. With amount $X > 0$ cents:
+  $$\Delta \text{Balance}(A) = -X, \quad \Delta \text{Balance}(B) = +X, \quad \Delta \text{NetWorth} = 0$$
+- **Bidirectional Linking:** Symmetrically pairs source and destination records via `linked_transfer_transaction_id`.
+- **Cash Flow Isolation:** Both debit and credit sides are strictly excluded from Period Inflow and Period Outflow KPIs.
+- **Auto-Mirror Generation:** Creating a transfer in Account A automatically generates or offers the reciprocal $+X$ credit record in Account B.
+
+#### 5.3.2 Expense Reimbursements (The "MB WAY Dinner" Problem)
+- **Netting Mechanics:** When a user pays $-M$ cents for a group expense (e.g., `-60,00 €` at `Restauração`) and subsequently receives $k$ friend repayments $+r_1, +r_2, \dots$ via MB WAY, linking these credits directly reduces the parent category spend:
+  $$\text{Net Category Spend} = -M + \sum_{i=1}^k r_i$$
+- **Gross Income Neutrality:** The incoming reimbursements do not falsely inflate gross monthly income.
+- **Visual Presentation:** The parent transaction displays a sub-badge (`Reimbursed: +40,00 € • Net: -20,00 €`), and child reimbursements display a backlink pill pointing to the original expense.
+- **Candidate Suggestion Engine:** Suggests candidate parent expenses from a $\pm 14$-day window for 1-click linking.
 
 ---
 
@@ -258,3 +269,7 @@ flowchart LR
   - *M1.7:* Monthly Financial Health Report Card (`ReportCardView.tsx`) with 100-point score & letter grades (A+ to D).
   - *M1.8:* Route-level code splitting (`React.lazy`), React Error Boundary, contextual empty states, search debounce.
   - *M1.9:* IndexedDB High-Capacity Storage Adapter (500MB+) with auto-migration from `localStorage`.
+
+- **Epoch 2 (In Active Development):**
+  - *M2.1:* Native Desktop Packaging (Tauri v2) & Automated Multi-Platform Release Pipeline (`.github/workflows/release-desktop.yml`).
+  - *M2.2:* Internal Transfers & MB WAY Reimbursement Pair Linker (`finfolio_milestone_2_2_transfers_spec.md`).

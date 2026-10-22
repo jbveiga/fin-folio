@@ -181,6 +181,10 @@ pub struct Transaction {
     pub clean_description: String,
     pub dedup_hash: String,
     pub is_reconciled: bool,
+    #[serde(default)]
+    pub linked_transfer_transaction_id: Option<String>,
+    #[serde(default)]
+    pub reimbursement_parent_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

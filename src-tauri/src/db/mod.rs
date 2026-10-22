@@ -804,6 +804,8 @@ impl VaultEngine {
                 clean_description: clean_description.to_string(),
                 dedup_hash: dedup_hash.to_string(),
                 is_reconciled,
+                linked_transfer_transaction_id: None,
+                reimbursement_parent_id: None,
             },
             splits: saved_splits,
             running_balance_cents: None,
@@ -831,6 +833,8 @@ impl VaultEngine {
                     clean_description: row.get(6)?,
                     dedup_hash: row.get(7)?,
                     is_reconciled: rec != 0,
+                    linked_transfer_transaction_id: None,
+                    reimbursement_parent_id: None,
                 })
             },
         )?;
@@ -1502,6 +1506,8 @@ impl VaultEngine {
                     clean_description: row.get(6)?,
                     dedup_hash: row.get(7)?,
                     is_reconciled: rec != 0,
+                    linked_transfer_transaction_id: None,
+                    reimbursement_parent_id: None,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;

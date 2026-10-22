@@ -11,6 +11,7 @@ import {
   ImportRule,
   ParseStatementResultDto,
   RecurringSchedule,
+  ReimbursementSummary,
   SaveTransactionInput,
   StagedTransactionRowDto,
   TransactionWithSplits,
@@ -102,6 +103,24 @@ interface FinFolioState {
     reconciled: boolean
   ) => Promise<void>;
   batchDeleteTransactions: (txIds: string[]) => Promise<void>;
+
+  // Milestone 2.2: Internal Transfers & MB WAY Reimbursements
+  linkTransferPair: (sourceTxId: string, targetTxId: string) => Promise<void>;
+  unlinkTransferPair: (txId: string) => Promise<void>;
+  linkReimbursement: (
+    childCreditTxId: string,
+    parentExpenseTxId: string
+  ) => Promise<void>;
+  unlinkReimbursement: (childCreditTxId: string) => Promise<void>;
+  createTransferWithMirror: (
+    input: SaveTransactionInput,
+    targetAccountId: string
+  ) => Promise<void>;
+  getReimbursementSummary: (parentTxId: string) => ReimbursementSummary | null;
+  getCandidateReimbursementParents: (
+    childCreditTxId: string
+  ) => TransactionWithSplits[];
+  getCandidateTransferPeers: (txId: string) => TransactionWithSplits[];
 
   // Staging Grid Actions
   setStagingAccountId: (accountId: string) => void;
@@ -470,6 +489,139 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
     set({
       selectedLedgerTxIds: [],
       statusBannerMessage: `✓ Deleted ${txIds.length} transaction(s).`,
+    });
+  },
+
+  linkTransferPair: async (sourceTxId, targetTxId) => {
+    await ipc.linkTransferPair(sourceTxId, targetTxId);
+    await get().refreshLedger();
+    set({
+      statusBannerMessage: "✓ Symmetrically linked internal transfer pair.",
+    });
+  },
+
+  unlinkTransferPair: async (txId) => {
+    await ipc.unlinkTransferPair(txId);
+    await get().refreshLedger();
+    set({
+      statusBannerMessage: "✓ Unlinked transfer pair.",
+    });
+  },
+
+  linkReimbursement: async (childCreditTxId, parentExpenseTxId) => {
+    await ipc.linkReimbursement(childCreditTxId, parentExpenseTxId);
+    await get().refreshLedger();
+    set({
+      statusBannerMessage:
+        "✓ Linked incoming reimbursement to parent group expense (netted category spend).",
+    });
+  },
+
+  unlinkReimbursement: async (childCreditTxId) => {
+    await ipc.unlinkReimbursement(childCreditTxId);
+    await get().refreshLedger();
+    set({
+      statusBannerMessage: "✓ Unlinked reimbursement.",
+    });
+  },
+
+  createTransferWithMirror: async (input, targetAccountId) => {
+    await ipc.createTransferWithMirror(input, targetAccountId);
+    await get().refreshLedger();
+    set({
+      statusBannerMessage: `✓ Created transfer and mirror credit in target account.`,
+      isNewTransactionRowOpen: false,
+    });
+  },
+
+  getReimbursementSummary: (parentTxId) => {
+    const parent = get().transactions.find(
+      (t) => t.transaction.id === parentTxId
+    );
+    if (!parent) return null;
+    const children = get().transactions.filter(
+      (t) => t.transaction.reimbursement_parent_id === parentTxId
+    );
+    if (children.length === 0) return null;
+    const totalReimbursedCents = children.reduce(
+      (acc, c) => acc + Math.max(0, c.transaction.total_amount_cents),
+      0
+    );
+    return {
+      parentTransactionId: parentTxId,
+      totalReimbursedCents,
+      netAmountCents:
+        parent.transaction.total_amount_cents + totalReimbursedCents,
+      reimbursementCount: children.length,
+      childReimbursementIds: children.map((c) => c.transaction.id),
+    };
+  },
+
+  getCandidateReimbursementParents: (childCreditTxId) => {
+    const child = get().transactions.find(
+      (t) => t.transaction.id === childCreditTxId
+    );
+    const childDate = child?.transaction.date_posted || "";
+
+    return get().transactions.filter((t) => {
+      // Must be an expense (negative amount)
+      if (t.transaction.total_amount_cents >= 0) return false;
+      // Cannot be itself
+      if (t.transaction.id === childCreditTxId) return false;
+      // Cannot be a transfer
+      if (
+        t.transaction.linked_transfer_transaction_id ||
+        t.splits.some((s) => s.transfer_peer_account_id)
+      ) {
+        return false;
+      }
+      return true;
+    }).sort((a, b) => {
+      // Prioritize expenses close to the child credit date (e.g. past 14-30 days)
+      const diffA = childDate
+        ? Math.abs(new Date(childDate).getTime() - new Date(a.transaction.date_posted).getTime())
+        : 0;
+      const diffB = childDate
+        ? Math.abs(new Date(childDate).getTime() - new Date(b.transaction.date_posted).getTime())
+        : 0;
+      return diffA - diffB;
+    });
+  },
+
+  getCandidateTransferPeers: (txId) => {
+    const target = get().transactions.find((t) => t.transaction.id === txId);
+    if (!target) return [];
+    const targetAmt = target.transaction.total_amount_cents;
+    const targetAccId = target.transaction.account_id;
+    const targetDate = target.transaction.date_posted;
+
+    return get().transactions.filter((t) => {
+      if (t.transaction.id === txId) return false;
+      // Must be in a different account
+      if (t.transaction.account_id === targetAccId) return false;
+      // Must not be already linked to another transfer
+      if (
+        t.transaction.linked_transfer_transaction_id &&
+        t.transaction.linked_transfer_transaction_id !== txId
+      ) {
+        return false;
+      }
+      // Signs should be opposite (one debit, one credit)
+      return t.transaction.total_amount_cents * targetAmt <= 0;
+    }).sort((a, b) => {
+      // Exact opposite amount match comes first
+      const exactA = a.transaction.total_amount_cents === -targetAmt ? 0 : 1;
+      const exactB = b.transaction.total_amount_cents === -targetAmt ? 0 : 1;
+      if (exactA !== exactB) return exactA - exactB;
+
+      // Then date proximity
+      const diffA = Math.abs(
+        new Date(targetDate).getTime() - new Date(a.transaction.date_posted).getTime()
+      );
+      const diffB = Math.abs(
+        new Date(targetDate).getTime() - new Date(b.transaction.date_posted).getTime()
+      );
+      return diffA - diffB;
     });
   },
 

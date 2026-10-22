@@ -1296,12 +1296,20 @@ export const ipc = {
     let outflow = 0;
     for (const item of filtered) {
       for (const sp of item.splits) {
-        if (sp.transfer_peer_account_id) continue;
+        if (
+          sp.transfer_peer_account_id ||
+          item.transaction.linked_transfer_transaction_id
+        ) {
+          continue;
+        }
         const cat = sp.category_id ? catMap.get(sp.category_id) : undefined;
         if (cat?.direction === "Expense") {
           outflow += sp.split_amount_cents;
         } else if (cat?.direction === "Income") {
           inflow += sp.split_amount_cents;
+        } else if (item.transaction.reimbursement_parent_id) {
+          // Linked incoming reimbursement nets down expense outflow rather than inflating income
+          outflow += sp.split_amount_cents;
         } else if (sp.split_amount_cents > 0) {
           inflow += sp.split_amount_cents;
         } else {
@@ -1371,12 +1379,21 @@ export const ipc = {
         entity_id: entityId,
         date_posted: transaction.date_posted,
         total_amount_cents: transaction.total_amount_cents,
-        raw_bank_string: transaction.raw_bank_string || transaction.clean_description,
+        raw_bank_string:
+          transaction.raw_bank_string || transaction.clean_description,
         clean_description: transaction.clean_description,
         dedup_hash: existingTx?.dedup_hash || `manual_${txId}`,
         is_reconciled: transaction.is_reconciled,
         is_recurring: isRecurringFlag,
         recurrence_interval: recurrenceInterval,
+        linked_transfer_transaction_id:
+          transaction.linked_transfer_transaction_id !== undefined
+            ? transaction.linked_transfer_transaction_id
+            : existingTx?.linked_transfer_transaction_id ?? null,
+        reimbursement_parent_id:
+          transaction.reimbursement_parent_id !== undefined
+            ? transaction.reimbursement_parent_id
+            : existingTx?.reimbursement_parent_id ?? null,
       },
       splits: transaction.splits.map((s, idx) => ({
         id: `sp_${txId}_${idx}`,
@@ -1431,10 +1448,165 @@ export const ipc = {
     if (isTauriRuntime()) {
       return invoke("ledger_delete_transaction", { id });
     }
+    const target = fallbackDb.transactions.find((t) => t.transaction.id === id);
+    if (target) {
+      const peerId = target.transaction.linked_transfer_transaction_id;
+      if (peerId) {
+        const peer = fallbackDb.transactions.find(
+          (t) => t.transaction.id === peerId
+        );
+        if (peer) {
+          peer.transaction.linked_transfer_transaction_id = null;
+          if (peer.splits.length > 0) {
+            peer.splits[0].transfer_peer_account_id = null;
+          }
+        }
+      }
+      // If this transaction was a reimbursement parent, unlink all child reimbursements
+      for (const t of fallbackDb.transactions) {
+        if (t.transaction.reimbursement_parent_id === id) {
+          t.transaction.reimbursement_parent_id = null;
+        }
+      }
+    }
     fallbackDb.transactions = fallbackDb.transactions.filter(
       (t) => t.transaction.id !== id
     );
     persistFallbackDb();
+  },
+
+  async linkTransferPair(
+    sourceTxId: string,
+    targetTxId: string
+  ): Promise<void> {
+    const source = fallbackDb.transactions.find(
+      (t) => t.transaction.id === sourceTxId
+    );
+    const target = fallbackDb.transactions.find(
+      (t) => t.transaction.id === targetTxId
+    );
+    if (!source || !target) return;
+
+    source.transaction.linked_transfer_transaction_id = target.transaction.id;
+    target.transaction.linked_transfer_transaction_id = source.transaction.id;
+
+    if (
+      source.splits.length > 0 &&
+      !source.splits[0].transfer_peer_account_id
+    ) {
+      source.splits[0].transfer_peer_account_id =
+        target.transaction.account_id;
+    }
+    if (
+      target.splits.length > 0 &&
+      !target.splits[0].transfer_peer_account_id
+    ) {
+      target.splits[0].transfer_peer_account_id =
+        source.transaction.account_id;
+    }
+    persistFallbackDb();
+  },
+
+  async unlinkTransferPair(txId: string): Promise<void> {
+    const item = fallbackDb.transactions.find(
+      (t) => t.transaction.id === txId
+    );
+    if (!item) return;
+    const peerId = item.transaction.linked_transfer_transaction_id;
+    item.transaction.linked_transfer_transaction_id = null;
+    if (item.splits.length > 0) {
+      item.splits[0].transfer_peer_account_id = null;
+    }
+
+    if (peerId) {
+      const peer = fallbackDb.transactions.find(
+        (t) => t.transaction.id === peerId
+      );
+      if (peer) {
+        peer.transaction.linked_transfer_transaction_id = null;
+        if (peer.splits.length > 0) {
+          peer.splits[0].transfer_peer_account_id = null;
+        }
+      }
+    }
+    persistFallbackDb();
+  },
+
+  async linkReimbursement(
+    childCreditTxId: string,
+    parentExpenseTxId: string
+  ): Promise<void> {
+    const child = fallbackDb.transactions.find(
+      (t) => t.transaction.id === childCreditTxId
+    );
+    const parent = fallbackDb.transactions.find(
+      (t) => t.transaction.id === parentExpenseTxId
+    );
+    if (!child || !parent) return;
+
+    child.transaction.reimbursement_parent_id = parent.transaction.id;
+    // Inherit the parent's expense category onto child credit split so reimbursement nets down parent category spend
+    const parentCatId = parent.splits[0]?.category_id || null;
+    if (child.splits.length > 0) {
+      child.splits[0].category_id = parentCatId;
+      child.splits[0].transfer_peer_account_id = null;
+    }
+    persistFallbackDb();
+  },
+
+  async unlinkReimbursement(childCreditTxId: string): Promise<void> {
+    const child = fallbackDb.transactions.find(
+      (t) => t.transaction.id === childCreditTxId
+    );
+    if (!child) return;
+    child.transaction.reimbursement_parent_id = null;
+    persistFallbackDb();
+  },
+
+  async createTransferWithMirror(
+    input: SaveTransactionInput,
+    targetAccountId: string
+  ): Promise<{
+    source: TransactionWithSplits;
+    mirror: TransactionWithSplits;
+  }> {
+    const sourceId = input.id || `tx_${Date.now()}`;
+    const mirrorId = `tx_${Date.now() + 1}`;
+
+    const sourceInput: SaveTransactionInput = {
+      ...input,
+      id: sourceId,
+      linked_transfer_transaction_id: mirrorId,
+      splits: input.splits.map((s) => ({
+        ...s,
+        transfer_peer_account_id: targetAccountId,
+      })),
+    };
+    const savedSource = await this.saveTransaction(sourceInput);
+
+    const mirrorInput: SaveTransactionInput = {
+      id: mirrorId,
+      account_id: targetAccountId,
+      entity_id: input.entity_id,
+      entity_name: input.entity_name,
+      date_posted: input.date_posted,
+      total_amount_cents: -input.total_amount_cents,
+      raw_bank_string: `TRF AUTO-MIRROR ${input.clean_description}`,
+      clean_description: input.clean_description,
+      is_reconciled: input.is_reconciled,
+      linked_transfer_transaction_id: sourceId,
+      splits: [
+        {
+          category_id: null,
+          transfer_peer_account_id: input.account_id,
+          split_amount_cents: -input.total_amount_cents,
+          notes: `Auto-mirror transfer from ${input.account_id}`,
+        },
+      ],
+    };
+    const savedMirror = await this.saveTransaction(mirrorInput);
+
+    return { source: savedSource, mirror: savedMirror };
   },
 
   async toggleReconciled(id: string): Promise<boolean> {

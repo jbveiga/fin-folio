@@ -19,10 +19,13 @@ import {
   BookOpen,
   UploadCloud,
   X,
+  Undo2,
 } from "lucide-react";
 import { useFinFolioStore } from "../stores/useFinFolioStore";
-import { SaveSplitInput, TransactionWithSplits } from "../types";
+import { SaveSplitInput, SaveTransactionInput, TransactionWithSplits } from "../types";
 import { formatCents, parseCentsInput } from "../utils/money";
+import { LinkReimbursementModal } from "./LinkReimbursementModal";
+import { LinkTransferModal } from "./LinkTransferModal";
 
 function formatCentsToEditableInput(cents: number): string {
   const intVal = BigInt(Math.trunc(cents || 0));
@@ -71,6 +74,8 @@ export const VirtualizedLedgerView: React.FC = () => {
     batchDeleteTransactions,
     applyRulesToTransactions,
     createRecurringFromTransaction,
+    createTransferWithMirror,
+    getReimbursementSummary,
     setNewTransactionRowOpen,
     setStatusBanner,
   } = useFinFolioStore();
@@ -120,6 +125,13 @@ export const VirtualizedLedgerView: React.FC = () => {
   const [newTxDescription, setNewTxDescription] = useState("");
   const [newTxAmountStr, setNewTxAmountStr] = useState("-25,00");
   const [newTxIsRecurring, setNewTxIsRecurring] = useState(false);
+  const [newTxAutoMirror, setNewTxAutoMirror] = useState(true);
+
+  // Link Modals State (Milestone 2.2)
+  const [reimbursementModalTx, setReimbursementModalTx] =
+    useState<TransactionWithSplits | null>(null);
+  const [transferModalTx, setTransferModalTx] =
+    useState<TransactionWithSplits | null>(null);
 
   // Keep default account synced when opening Quick Entry (`Cmd+N`) and focus Entity input
   useEffect(() => {
@@ -195,7 +207,7 @@ export const VirtualizedLedgerView: React.FC = () => {
       newTxEntityName.trim() ||
       (transferPeerId ? "Internal Transfer" : "Manual Entry");
 
-    await saveTransaction({
+    const txInput: SaveTransactionInput = {
       id: null,
       account_id: targetAccId,
       entity_id:
@@ -220,11 +232,17 @@ export const VirtualizedLedgerView: React.FC = () => {
           notes: newTxDescription.trim() || null,
         },
       ],
-    });
+    };
+
+    if (isTransfer && transferPeerId && newTxAutoMirror) {
+      await createTransferWithMirror(txInput, transferPeerId);
+    } else {
+      await saveTransaction(txInput);
+    }
 
     // Rapid "Add & Next" loop: flash status banner, reset Entity/Description/Amount, keep focus on Entity
     setStatusBanner(
-      `✓ ${newTxIsRecurring ? "Recurring transaction" : "Transaction"} saved (${formatCents(
+      `✓ ${newTxIsRecurring ? "Recurring transaction" : isTransfer ? "Transfer" : "Transaction"} saved (${formatCents(
         amountCents,
         true
       )}) — ready for next entry`
@@ -468,6 +486,22 @@ export const VirtualizedLedgerView: React.FC = () => {
             <span>Recurring</span>
           </label>
 
+          {newTxCategoryOrTransfer.startsWith("transfer:") && (
+            <label
+              className="flex items-center gap-1.5 px-2 py-1 rounded bg-sky-950/40 border border-sky-800/60 text-xs text-sky-200 hover:text-sky-100 cursor-pointer select-none shrink-0"
+              title="Automatically create equal-and-opposite credit transaction in target account with mutual transfer link"
+            >
+              <input
+                type="checkbox"
+                checked={newTxAutoMirror}
+                onChange={(e) => setNewTxAutoMirror(e.target.checked)}
+                className="rounded bg-neutral-950 border-neutral-700 accent-sky-500"
+              />
+              <ArrowRightLeft className="w-3.5 h-3.5 text-sky-400" />
+              <span>Auto-Mirror Credit</span>
+            </label>
+          )}
+
           <button
             type="submit"
             className="px-3 py-1 rounded bg-emerald-500 text-neutral-950 font-semibold hover:bg-emerald-400 transition-colors shrink-0"
@@ -491,7 +525,7 @@ export const VirtualizedLedgerView: React.FC = () => {
       </datalist>
 
       {/* Grid Column Headers (Desktop >= 768px) */}
-      <div className="hidden md:grid grid-cols-[32px_36px_96px_130px_170px_220px_1fr_130px_104px] items-center px-4 h-8 bg-neutral-900 border-b border-neutral-800 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 shrink-0">
+      <div className="hidden md:grid grid-cols-[32px_36px_96px_120px_160px_210px_1fr_130px_150px] items-center px-4 h-8 bg-neutral-900 border-b border-neutral-800 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 shrink-0">
         <div className="flex items-center">
           <input
             type="checkbox"
@@ -617,6 +651,37 @@ export const VirtualizedLedgerView: React.FC = () => {
                 ? accountMap.get(primarySplit.transfer_peer_account_id)
                 : null;
 
+              // Section 5.3 Transfer and Reimbursement Linking
+              const isTransferRow = Boolean(
+                tx.linked_transfer_transaction_id ||
+                transferPeer ||
+                primarySplit?.transfer_peer_account_id
+              );
+              const linkedPeerTx = tx.linked_transfer_transaction_id
+                ? transactions.find(
+                    (t) => t.transaction.id === tx.linked_transfer_transaction_id
+                  )
+                : null;
+              const linkedPeerAccount = linkedPeerTx
+                ? accountMap.get(linkedPeerTx.transaction.account_id)
+                : null;
+              const effectiveTransferTargetName =
+                transferPeer?.name || linkedPeerAccount?.name || "Account";
+
+              const isChildReimbursement = Boolean(tx.reimbursement_parent_id);
+              const parentTx = tx.reimbursement_parent_id
+                ? transactions.find(
+                    (t) => t.transaction.id === tx.reimbursement_parent_id
+                  )
+                : null;
+              const parentTxDesc =
+                parentTx?.transaction.clean_description || "Expense";
+              const reimbursementSummary =
+                tx.total_amount_cents < 0 ? getReimbursementSummary(tx.id) : null;
+              const hasReimbursements = Boolean(
+                reimbursementSummary && reimbursementSummary.reimbursementCount > 0
+              );
+
               // Detect Section 5.3 "MB WAY Dinner" Expense Reimbursement:
               // Positive transaction amount assigned directly to an Expense category
               const isExpenseReimbursement =
@@ -705,16 +770,23 @@ export const VirtualizedLedgerView: React.FC = () => {
                                 </span>
                               )}
                           </div>
-                          <div
-                            className={`font-mono text-sm font-semibold text-right tabular-nums shrink-0 ${
-                              transferPeer
-                                ? "text-sky-400"
-                                : tx.total_amount_cents >= 0
-                                ? "text-emerald-400"
-                                : "text-rose-400"
-                            }`}
-                          >
-                            {formatCents(tx.total_amount_cents, true)}
+                          <div className="text-right shrink-0">
+                            <div
+                              className={`font-mono text-sm font-semibold tabular-nums ${
+                                isTransferRow
+                                  ? "text-sky-400"
+                                  : tx.total_amount_cents >= 0
+                                  ? "text-emerald-400"
+                                  : "text-rose-400"
+                              }`}
+                            >
+                              {formatCents(tx.total_amount_cents, true)}
+                            </div>
+                            {hasReimbursements && reimbursementSummary && (
+                              <div className="text-[10px] font-mono text-emerald-400 font-normal">
+                                Net: {formatCents(reimbursementSummary.netAmountCents, true)}
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -740,13 +812,34 @@ export const VirtualizedLedgerView: React.FC = () => {
                               <GitBranch className="w-2.5 h-2.5" />
                               <span>{splits.length} Splits</span>
                             </button>
-                          ) : transferPeer ? (
-                            <span className="px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[10px] font-medium flex items-center gap-1 truncate max-w-[140px]">
+                          ) : isTransferRow ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setTransferModalTx(item);
+                              }}
+                              className="px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[10px] font-medium flex items-center gap-1 truncate max-w-[140px]"
+                            >
                               <ArrowRightLeft className="w-2.5 h-2.5 shrink-0" />
                               <span className="truncate">
-                                {transferPeer.name}
+                                {effectiveTransferTargetName}
                               </span>
-                            </span>
+                            </button>
+                          ) : isChildReimbursement ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setReimbursementModalTx(item);
+                              }}
+                              className="px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-medium flex items-center gap-1 truncate max-w-[140px]"
+                            >
+                              <Undo2 className="w-2.5 h-2.5 shrink-0" />
+                              <span className="truncate">
+                                {parentTxDesc || "Reimbursement"}
+                              </span>
+                            </button>
                           ) : primaryCat ? (
                             <button
                               type="button"
@@ -776,6 +869,22 @@ export const VirtualizedLedgerView: React.FC = () => {
                               Uncategorized
                             </span>
                           )}
+
+                          {tx.total_amount_cents > 0 &&
+                            !isTransferRow &&
+                            !isChildReimbursement && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setReimbursementModalTx(item);
+                                }}
+                                className="px-1.5 py-0.5 rounded bg-emerald-950/40 text-emerald-300 border border-emerald-800/60 text-[10px] flex items-center gap-1 shrink-0"
+                              >
+                                <Undo2 className="w-2.5 h-2.5" />
+                                <span>Link MB WAY</span>
+                              </button>
+                            )}
 
                           {isTxRecurring && (
                             <span
@@ -811,7 +920,7 @@ export const VirtualizedLedgerView: React.FC = () => {
                     {/* DESKTOP 9-COLUMN GRID (>= 768px)                      */}
                     {/* ===================================================== */}
                     <div
-                      className={`hidden md:grid grid-cols-[32px_36px_96px_130px_170px_220px_1fr_130px_104px] items-center px-4 h-9 text-[13px] ${
+                      className={`hidden md:grid grid-cols-[32px_36px_96px_120px_160px_210px_1fr_130px_150px] items-center px-4 h-9 text-[13px] ${
                         selectedLedgerTxIds.includes(tx.id)
                           ? "bg-emerald-950/25"
                           : ""
@@ -885,11 +994,40 @@ export const VirtualizedLedgerView: React.FC = () => {
                             <GitBranch className="w-3 h-3" />
                             {splits.length} Splits
                           </span>
-                        ) : transferPeer ? (
-                          <span className="px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[11px] font-medium flex items-center gap-1">
-                            <ArrowRightLeft className="w-3 h-3" />
-                            Transfer → {transferPeer.name}
-                          </span>
+                        ) : isTransferRow ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTransferModalTx(item);
+                            }}
+                            className="px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30 hover:bg-sky-500/25 text-[11px] font-medium flex items-center gap-1 truncate max-w-[200px] transition-colors"
+                            title={
+                              tx.linked_transfer_transaction_id
+                                ? `Linked Transfer: ${account?.name || "A"} ↔ ${effectiveTransferTargetName}`
+                                : `Transfer → ${effectiveTransferTargetName}`
+                            }
+                          >
+                            <ArrowRightLeft className="w-3 h-3 shrink-0" />
+                            <span className="truncate">
+                              Transfer → {effectiveTransferTargetName}
+                            </span>
+                          </button>
+                        ) : isChildReimbursement ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setReimbursementModalTx(item);
+                            }}
+                            className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 text-[11px] font-medium flex items-center gap-1 truncate max-w-[200px] transition-colors"
+                            title={`Reimburses parent expense "${parentTxDesc}"`}
+                          >
+                            <Undo2 className="w-3 h-3 shrink-0" />
+                            <span className="truncate">
+                              ↩ Reimburses: {parentTxDesc}
+                            </span>
+                          </button>
                         ) : primaryCat ? (
                           <button
                             type="button"
@@ -934,6 +1072,22 @@ export const VirtualizedLedgerView: React.FC = () => {
                             <span>Recurring</span>
                           </span>
                         )}
+                        {tx.total_amount_cents > 0 &&
+                          !isTransferRow &&
+                          !isChildReimbursement && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setReimbursementModalTx(item);
+                              }}
+                              className="px-1.5 py-0.5 rounded bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-800/60 text-[10px] flex items-center gap-1 shrink-0 transition-colors"
+                              title="Link as reimbursement to an earlier expense (e.g. MB WAY dinner split)"
+                            >
+                              <Undo2 className="w-2.5 h-2.5" />
+                              <span>Link Reimbursement</span>
+                            </button>
+                          )}
                         {primarySplit?.notes &&
                           primarySplit.notes !== tx.clean_description && (
                             <span className="text-xs text-neutral-500 truncate">
@@ -948,19 +1102,79 @@ export const VirtualizedLedgerView: React.FC = () => {
                         )}
                       </div>
 
-                      <div
-                        className={`font-mono text-xs font-semibold text-right tabular-nums ${
-                          transferPeer
-                            ? "text-sky-400"
-                            : tx.total_amount_cents >= 0
-                            ? "text-emerald-400"
-                            : "text-rose-400"
-                        }`}
-                      >
-                        {formatCents(tx.total_amount_cents, true)}
+                      <div>
+                        <div
+                          className={`font-mono text-xs font-semibold text-right tabular-nums ${
+                            isTransferRow
+                              ? "text-sky-400"
+                              : tx.total_amount_cents >= 0
+                              ? "text-emerald-400"
+                              : "text-rose-400"
+                          }`}
+                        >
+                          {formatCents(tx.total_amount_cents, true)}
+                        </div>
+                        {hasReimbursements && reimbursementSummary && (
+                          <div
+                            className="text-[10px] font-mono text-emerald-400 font-normal text-right leading-none mt-0.5"
+                            title={`Reimbursed: +${formatCents(reimbursementSummary.totalReimbursedCents)} across ${reimbursementSummary.reimbursementCount} payment(s)`}
+                          >
+                            Net: {formatCents(reimbursementSummary.netAmountCents, true)}
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setTransferModalTx(item);
+                          }}
+                          title={
+                            tx.linked_transfer_transaction_id
+                              ? "Manage Transfer Pair Link"
+                              : "Link to Peer Transfer Transaction"
+                          }
+                          className={`p-1 rounded hover:bg-neutral-700 transition-colors ${
+                            tx.linked_transfer_transaction_id || isTransferRow
+                              ? "text-sky-400"
+                              : "text-neutral-500 hover:text-sky-300"
+                          }`}
+                        >
+                          <ArrowRightLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (isChildReimbursement || tx.total_amount_cents > 0) {
+                              setReimbursementModalTx(item);
+                            } else if (hasReimbursements && reimbursementSummary) {
+                              const child = transactions.find(
+                                (t) =>
+                                  t.transaction.id ===
+                                  reimbursementSummary.childReimbursementIds[0]
+                              );
+                              if (child) setReimbursementModalTx(child);
+                              else setReimbursementModalTx(item);
+                            } else {
+                              setReimbursementModalTx(item);
+                            }
+                          }}
+                          title={
+                            isChildReimbursement
+                              ? "Manage Linked Reimbursement"
+                              : hasReimbursements
+                              ? `View ${reimbursementSummary?.reimbursementCount} Linked Reimbursements`
+                              : "Link as Reimbursement (MB WAY)"
+                          }
+                          className={`p-1 rounded hover:bg-neutral-700 transition-colors ${
+                            isChildReimbursement || hasReimbursements
+                              ? "text-emerald-400"
+                              : "text-neutral-500 hover:text-emerald-300"
+                          }`}
+                        >
+                          <Undo2 className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1128,6 +1342,20 @@ export const VirtualizedLedgerView: React.FC = () => {
           </button>
         </div>
       )}
+
+      {/* Task: Link Transfer Pair Modal (Milestone 2.2) */}
+      <LinkTransferModal
+        isOpen={Boolean(transferModalTx)}
+        sourceTransaction={transferModalTx}
+        onClose={() => setTransferModalTx(null)}
+      />
+
+      {/* Task: Link Reimbursement Modal (MB WAY Dinner) (Milestone 2.2) */}
+      <LinkReimbursementModal
+        isOpen={Boolean(reimbursementModalTx)}
+        childTransaction={reimbursementModalTx}
+        onClose={() => setReimbursementModalTx(null)}
+      />
     </div>
   );
 };
@@ -1232,6 +1460,8 @@ const InlineRowEditForm: React.FC<InlineRowEditFormProps> = ({
       is_reconciled: tx.is_reconciled,
       is_recurring: tx.is_recurring,
       recurrence_interval: tx.recurrence_interval,
+      linked_transfer_transaction_id: tx.linked_transfer_transaction_id,
+      reimbursement_parent_id: tx.reimbursement_parent_id,
       splits: updatedSplits,
     });
 

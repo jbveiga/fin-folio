@@ -192,6 +192,16 @@ export interface Transaction {
   is_reconciled: boolean;
   is_recurring?: boolean;
   recurrence_interval?: RecurrenceInterval;
+  linked_transfer_transaction_id?: string | null;
+  reimbursement_parent_id?: string | null;
+}
+
+export interface ReimbursementSummary {
+  parentTransactionId: string;
+  totalReimbursedCents: Cents;
+  netAmountCents: Cents;
+  reimbursementCount: number;
+  childReimbursementIds: string[];
 }
 
 export interface TransactionSplit {
@@ -324,5 +334,7 @@ export interface SaveTransactionInput {
   is_reconciled: boolean;
   is_recurring?: boolean;
   recurrence_interval?: RecurrenceInterval;
+  linked_transfer_transaction_id?: string | null;
+  reimbursement_parent_id?: string | null;
   splits: SaveSplitInput[];
 }
