@@ -236,7 +236,8 @@ impl VaultEngine {
                 anchor_date TEXT NOT NULL,
                 is_included_in_totals INTEGER NOT NULL DEFAULT 1 CHECK (is_included_in_totals IN (0, 1)),
                 cached_post_anchor_delta_cents INTEGER NOT NULL DEFAULT 0,
-                cached_pre_anchor_delta_cents INTEGER NOT NULL DEFAULT 0
+                cached_pre_anchor_delta_cents INTEGER NOT NULL DEFAULT 0,
+                currency TEXT NOT NULL DEFAULT 'EUR'
             );
 
             -- 3. Categories (Hierarchical up to 3 levels deep)
@@ -373,6 +374,11 @@ impl VaultEngine {
             ",
         )?;
 
+        // Idempotent column migrations for backward compatibility (Milestone 2.3 Multi-Currency)
+        let _ = self
+            .conn
+            .execute("ALTER TABLE accounts ADD COLUMN currency TEXT NOT NULL DEFAULT 'EUR';", []);
+
         Ok(())
     }
 
@@ -420,6 +426,25 @@ impl VaultEngine {
         anchor_date: &str,
         is_included_in_totals: bool,
     ) -> Result<Account, VaultError> {
+        self.create_account_with_currency(
+            name,
+            account_type,
+            anchor_balance_cents,
+            anchor_date,
+            is_included_in_totals,
+            "EUR",
+        )
+    }
+
+    pub fn create_account_with_currency(
+        &self,
+        name: &str,
+        account_type: AccountType,
+        anchor_balance_cents: i64,
+        anchor_date: &str,
+        is_included_in_totals: bool,
+        currency: &str,
+    ) -> Result<Account, VaultError> {
         let account = Account {
             id: new_uuid_v7(),
             name: name.to_string(),
@@ -427,17 +452,19 @@ impl VaultEngine {
             anchor_balance_cents,
             anchor_date: anchor_date.to_string(),
             is_included_in_totals,
+            currency: currency.to_string(),
         };
         self.conn.execute(
-            "INSERT INTO accounts (id, name, account_type, anchor_balance_cents, anchor_date, is_included_in_totals)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO accounts (id, name, account_type, anchor_balance_cents, anchor_date, is_included_in_totals, currency)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 account.id,
                 account.name,
                 account.account_type.as_str(),
                 account.anchor_balance_cents,
                 account.anchor_date,
-                if account.is_included_in_totals { 1 } else { 0 }
+                if account.is_included_in_totals { 1 } else { 0 },
+                account.currency,
             ],
         )?;
         Ok(account)
@@ -445,7 +472,7 @@ impl VaultEngine {
 
     pub fn get_account(&self, account_id: &str) -> Result<Account, VaultError> {
         let account = self.conn.query_row(
-            "SELECT id, name, account_type, anchor_balance_cents, anchor_date, is_included_in_totals
+            "SELECT id, name, account_type, anchor_balance_cents, anchor_date, is_included_in_totals, currency
              FROM accounts WHERE id = ?1",
             params![account_id],
             |row| {
@@ -459,6 +486,7 @@ impl VaultEngine {
                     anchor_balance_cents: row.get(3)?,
                     anchor_date: row.get(4)?,
                     is_included_in_totals: included != 0,
+                    currency: row.get(6).unwrap_or_else(|_| "EUR".to_string()),
                 })
             },
         )?;
@@ -467,7 +495,7 @@ impl VaultEngine {
 
     pub fn list_accounts(&self) -> Result<Vec<Account>, VaultError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, account_type, anchor_balance_cents, anchor_date, is_included_in_totals
+            "SELECT id, name, account_type, anchor_balance_cents, anchor_date, is_included_in_totals, currency
              FROM accounts ORDER BY id ASC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -481,6 +509,7 @@ impl VaultEngine {
                 anchor_balance_cents: row.get(3)?,
                 anchor_date: row.get(4)?,
                 is_included_in_totals: included != 0,
+                currency: row.get(6).unwrap_or_else(|_| "EUR".to_string()),
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -1050,7 +1079,7 @@ impl VaultEngine {
     pub fn update_account(&self, account: &Account) -> Result<(), VaultError> {
         self.conn.execute(
             "UPDATE accounts
-             SET name = ?2, account_type = ?3, anchor_balance_cents = ?4, anchor_date = ?5, is_included_in_totals = ?6
+             SET name = ?2, account_type = ?3, anchor_balance_cents = ?4, anchor_date = ?5, is_included_in_totals = ?6, currency = ?7
              WHERE id = ?1",
             params![
                 account.id,
@@ -1058,7 +1087,8 @@ impl VaultEngine {
                 account.account_type.as_str(),
                 account.anchor_balance_cents,
                 account.anchor_date,
-                if account.is_included_in_totals { 1 } else { 0 }
+                if account.is_included_in_totals { 1 } else { 0 },
+                account.currency,
             ],
         )?;
         Ok(())
@@ -1077,7 +1107,8 @@ impl VaultEngine {
                 a.anchor_date,
                 a.is_included_in_totals,
                 a.cached_post_anchor_delta_cents,
-                a.cached_pre_anchor_delta_cents
+                a.cached_pre_anchor_delta_cents,
+                a.currency
              FROM accounts a
              ORDER BY a.id ASC",
         )?;
@@ -1096,6 +1127,7 @@ impl VaultEngine {
                 anchor_balance_cents: anchor_cents,
                 anchor_date: row.get(4)?,
                 is_included_in_totals: included != 0,
+                currency: row.get(8).unwrap_or_else(|_| "EUR".to_string()),
             };
             Ok(AccountBalanceSummary {
                 account,

@@ -7,7 +7,9 @@ import {
   BankProfile,
   Category,
   Cents,
+  CurrencyCode,
   Entity,
+  FxRateConfig,
   ImportRule,
   ParseStatementResultDto,
   RecurringSchedule,
@@ -17,6 +19,7 @@ import {
   TransactionWithSplits,
   VaultStatus,
 } from "../types";
+import { DEFAULT_FX_RATES } from "../utils/fx";
 
 interface FinFolioState {
   // Navigation & UI Modals
@@ -29,6 +32,8 @@ interface FinFolioState {
 
   // Vault & Entities
   vaultStatus: VaultStatus | null;
+  baseCurrency: CurrencyCode;
+  fxRates: FxRateConfig;
   accountSummaries: AccountBalanceSummary[];
   selectedAccountIds: string[];
   categories: Category[];
@@ -156,6 +161,11 @@ interface FinFolioState {
   toggleRecurringActive: (id: string) => Promise<void>;
   createRecurringFromTransaction: (txId: string) => Promise<void>;
 
+  // Multi-Currency & Basis Point FX Actions (Milestone 2.3)
+  setBaseCurrency: (baseCurrency: CurrencyCode) => Promise<void>;
+  setFxRates: (fxRates: FxRateConfig) => Promise<void>;
+  resetFxRates: () => Promise<void>;
+
   // Vault Security, Portability & Benchmark
   rekeyVault: (newPassphrase: string | null) => Promise<void>;
   run100kBenchmark: (count?: number) => Promise<void>;
@@ -174,6 +184,8 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
   isVaultSecurityModalOpen: false,
 
   vaultStatus: null,
+  baseCurrency: "EUR",
+  fxRates: DEFAULT_FX_RATES,
   accountSummaries: [],
   selectedAccountIds: [],
   categories: [],
@@ -230,8 +242,13 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
         ? includedIds
         : accountSummaries.map((s) => s.account.id);
 
+    const baseCurrency = (vaultStatus?.base_currency as CurrencyCode) || "EUR";
+    const fxRates = vaultStatus?.fx_rates || DEFAULT_FX_RATES;
+
     set({
       vaultStatus,
+      baseCurrency,
+      fxRates,
       accountSummaries,
       selectedAccountIds: defaultSelected,
       stagingAccountId: defaultSelected[0] || "",
@@ -915,6 +932,38 @@ export const useFinFolioStore = create<FinFolioState>((set, get) => ({
       )}) to Monthly Recurring Schedule.`,
     });
     await get().refreshLedger();
+  },
+
+  setBaseCurrency: async (baseCurrency) => {
+    const updatedStatus = await ipc.updateVaultBaseCurrency(baseCurrency);
+    const fxRates = { ...get().fxRates, baseCurrency };
+    set({
+      baseCurrency,
+      vaultStatus: updatedStatus,
+      fxRates,
+    });
+    await get().refreshLedger();
+    set({
+      statusBannerMessage: `✓ Vault base currency set to ${baseCurrency}`,
+    });
+  },
+
+  setFxRates: async (fxRates) => {
+    const updated = await ipc.updateFxRates(fxRates);
+    set({ fxRates: updated });
+    await get().refreshLedger();
+    set({
+      statusBannerMessage: "✓ Local exchange rates updated & portfolio recalculated.",
+    });
+  },
+
+  resetFxRates: async () => {
+    const base = get().baseCurrency;
+    const rates: FxRateConfig = {
+      ...DEFAULT_FX_RATES,
+      baseCurrency: base,
+    };
+    await get().setFxRates(rates);
   },
 
   rekeyVault: async (newPassphrase) => {

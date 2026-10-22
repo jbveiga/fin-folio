@@ -12,12 +12,16 @@ import {
   X,
 } from "lucide-react";
 import { useFinFolioStore } from "../stores/useFinFolioStore";
-import { formatCents } from "../utils/money";
+import { formatCurrency } from "../utils/money";
+import { convertCurrency } from "../utils/fx";
+import { CurrencyCode } from "../types";
 import { getActiveDatePresetId, getDatePresets } from "../utils/datePresets";
 
 export const TopContextHeader: React.FC = () => {
   const {
     vaultStatus,
+    baseCurrency,
+    fxRates,
     accountSummaries,
     selectedAccountIds,
     periodInflowCents,
@@ -68,10 +72,33 @@ export const TopContextHeader: React.FC = () => {
     [startDate, endDate, presets]
   );
 
-  // Compute Selected Balance across currently checked accounts in integer cents
-  const selectedBalanceCents = accountSummaries
-    .filter((s) => selectedAccountIds.includes(s.account.id))
-    .reduce((acc, s) => acc + s.current_balance_cents, 0);
+  // Compute Selected Balance converted into Vault Base Currency in integer cents
+  const { selectedBalanceCents, distinctCurrencies } = useMemo(() => {
+    const selectedSummaries = accountSummaries.filter((s) =>
+      selectedAccountIds.includes(s.account.id)
+    );
+    const currencies = new Set<CurrencyCode>();
+    let totalBaseCents = 0;
+    for (const s of selectedSummaries) {
+      const cur = s.account.currency || "EUR";
+      currencies.add(cur);
+      totalBaseCents += convertCurrency(
+        s.current_balance_cents,
+        cur,
+        baseCurrency,
+        fxRates
+      );
+    }
+    return {
+      selectedBalanceCents: totalBaseCents,
+      distinctCurrencies: Array.from(currencies),
+    };
+  }, [accountSummaries, selectedAccountIds, baseCurrency, fxRates]);
+
+  const multiCurrencyLabel = useMemo(() => {
+    if (distinctCurrencies.length <= 1) return null;
+    return `${distinctCurrencies.length} Currencies: ${distinctCurrencies.join(", ")}`;
+  }, [distinctCurrencies]);
 
   return (
     <header
@@ -221,8 +248,15 @@ export const TopContextHeader: React.FC = () => {
         <div className="grid grid-cols-2 gap-2">
           <div className="px-3 py-1.5 rounded-xl bg-neutral-950/90 border border-neutral-800 flex items-center justify-between">
             <div className="min-w-0">
-              <div className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold truncate">
-                Selected Balance ({selectedAccountIds.length})
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold truncate">
+                  Balance ({selectedAccountIds.length})
+                </span>
+                {multiCurrencyLabel && (
+                  <span className="text-[9px] px-1 rounded bg-neutral-800 text-emerald-400 font-mono shrink-0">
+                    {distinctCurrencies.join("/")}
+                  </span>
+                )}
               </div>
               <div
                 className={`text-sm font-bold font-mono tabular-nums truncate ${
@@ -231,7 +265,7 @@ export const TopContextHeader: React.FC = () => {
                     : "text-rose-400"
                 }`}
               >
-                {formatCents(selectedBalanceCents)}
+                {formatCurrency(selectedBalanceCents, baseCurrency)}
               </div>
             </div>
             <Wallet className="w-4 h-4 text-emerald-400/70 shrink-0 ml-1" />
@@ -247,7 +281,7 @@ export const TopContextHeader: React.FC = () => {
                   netCashFlowCents >= 0 ? "text-emerald-400" : "text-rose-400"
                 }`}
               >
-                {formatCents(netCashFlowCents, true)}
+                {formatCurrency(netCashFlowCents, baseCurrency, true)}
               </div>
             </div>
             <Activity className="w-4 h-4 text-sky-400/70 shrink-0 ml-1" />
@@ -264,8 +298,18 @@ export const TopContextHeader: React.FC = () => {
           <div className="grid grid-cols-4 gap-3 flex-1 max-w-3xl">
             <div className="px-3 py-1.5 rounded-lg bg-neutral-950/80 border border-neutral-800 flex items-center justify-between">
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">
-                  Selected Balance ({selectedAccountIds.length})
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] uppercase tracking-wider text-neutral-400 font-semibold">
+                    Selected Balance ({selectedAccountIds.length})
+                  </span>
+                  {multiCurrencyLabel && (
+                    <span
+                      className="text-[9px] px-1.5 py-0.2 rounded bg-neutral-800 border border-neutral-700 text-emerald-400 font-mono tracking-tight"
+                      title={multiCurrencyLabel}
+                    >
+                      {multiCurrencyLabel}
+                    </span>
+                  )}
                 </div>
                 <div
                   className={`text-sm font-bold font-mono tabular-nums ${
@@ -274,7 +318,7 @@ export const TopContextHeader: React.FC = () => {
                       : "text-rose-400"
                   }`}
                 >
-                  {formatCents(selectedBalanceCents)}
+                  {formatCurrency(selectedBalanceCents, baseCurrency)}
                 </div>
               </div>
               <Wallet className="w-4 h-4 text-emerald-400/70" />
@@ -286,7 +330,7 @@ export const TopContextHeader: React.FC = () => {
                   Period Inflow
                 </div>
                 <div className="text-sm font-bold font-mono tabular-nums text-emerald-400">
-                  {formatCents(periodInflowCents, true)}
+                  {formatCurrency(periodInflowCents, baseCurrency, true)}
                 </div>
               </div>
               <TrendingUp className="w-4 h-4 text-emerald-400/70" />
@@ -298,7 +342,7 @@ export const TopContextHeader: React.FC = () => {
                   Period Outflow (Net)
                 </div>
                 <div className="text-sm font-bold font-mono tabular-nums text-rose-400">
-                  {formatCents(periodOutflowCents)}
+                  {formatCurrency(periodOutflowCents, baseCurrency)}
                 </div>
               </div>
               <TrendingDown className="w-4 h-4 text-rose-400/70" />
@@ -314,7 +358,7 @@ export const TopContextHeader: React.FC = () => {
                     netCashFlowCents >= 0 ? "text-emerald-400" : "text-rose-400"
                   }`}
                 >
-                  {formatCents(netCashFlowCents, true)}
+                  {formatCurrency(netCashFlowCents, baseCurrency, true)}
                 </div>
               </div>
               <Activity className="w-4 h-4 text-sky-400/70" />

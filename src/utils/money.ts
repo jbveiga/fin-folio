@@ -1,30 +1,50 @@
-import { Cents } from "../types";
+import { Cents, CurrencyCode } from "../types";
 
 /**
- * Strictly zero-float European integer cents formatter (`145075` -> `"1.450,75 €"`, `-2350` -> `"-23,50 €"`).
- * Uses BigInt integer division and modulo so floating-point math is never invoked.
+ * Multi-Currency integer cents formatter adhering to ISO-4217 specifications.
+ * Zero-float invariant: uses BigInt integer division and modulo (zero floating-point math).
  */
-export function formatCents(cents: Cents, showPlusSign = false): string {
+export function formatCurrency(
+  cents: number,
+  currency: CurrencyCode = "EUR",
+  showPlusSign = false
+): string {
   const intVal = BigInt(Math.trunc(cents || 0));
-  const isNeg = intVal < 0n;
-  const absVal = isNeg ? -intVal : intVal;
+  const isNegative = intVal < 0n;
+  const absVal = isNegative ? -intVal : intVal;
 
   const major = absVal / 100n;
   const minor = absVal % 100n;
+  const sign = isNegative ? "-" : showPlusSign && intVal > 0n ? "+" : "";
+  const remStr = minor.toString().padStart(2, "0");
 
-  const majorStr = major.toString();
-  let grouped = "";
-  for (let i = 0; i < majorStr.length; i++) {
-    const revIdx = majorStr.length - 1 - i;
-    grouped = majorStr[revIdx] + grouped;
-    if (i % 3 === 2 && revIdx > 0) {
-      grouped = "." + grouped;
+  switch (currency) {
+    case "USD": {
+      const uStr = Number(major).toLocaleString("en-US");
+      return `${sign}$${uStr}.${remStr}`;
+    }
+    case "GBP": {
+      const uStr = Number(major).toLocaleString("en-GB");
+      return `${sign}£${uStr}.${remStr}`;
+    }
+    case "CHF": {
+      const uStr = Number(major).toLocaleString("de-CH");
+      return `${sign}CHF ${uStr}.${remStr}`;
+    }
+    case "EUR":
+    default: {
+      const uStr = Number(major).toLocaleString("pt-PT");
+      return `${sign}${uStr},${remStr} €`;
     }
   }
+}
 
-  const minorStr = minor.toString().padStart(2, "0");
-  const sign = isNeg ? "-" : showPlusSign && intVal > 0n ? "+" : "";
-  return `${sign}${grouped},${minorStr} €`;
+/**
+ * Strictly zero-float European integer cents formatter (`145075` -> `"1.450,75 €"`, `-2350` -> `"-23,50 €"`).
+ * Re-routes to formatCurrency with EUR base currency.
+ */
+export function formatCents(cents: Cents, showPlusSign = false): string {
+  return formatCurrency(cents, "EUR", showPlusSign);
 }
 
 /**

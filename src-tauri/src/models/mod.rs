@@ -107,6 +107,10 @@ impl AccountType {
     }
 }
 
+fn default_currency() -> String {
+    "EUR".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Account {
     pub id: String,
@@ -115,6 +119,8 @@ pub struct Account {
     pub anchor_balance_cents: i64,
     pub anchor_date: String,
     pub is_included_in_totals: bool,
+    #[serde(default = "default_currency")]
+    pub currency: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

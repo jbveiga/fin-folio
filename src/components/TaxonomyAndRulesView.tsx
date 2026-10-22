@@ -17,11 +17,19 @@ import {
   RotateCcw,
   Database,
   AlertTriangle,
+  Coins,
 } from "lucide-react";
 import { useFinFolioStore } from "../stores/useFinFolioStore";
 import { ipc } from "../services/ipc";
 import { StorageInfo } from "../services/indexedDbVault";
-import { Category, CategoryDirection, Entity, MatchMode } from "../types";
+import {
+  Category,
+  CategoryDirection,
+  CurrencyCode,
+  Entity,
+  MatchMode,
+} from "../types";
+import { CURRENCIES } from "../utils/fx";
 
 const CURATED_SWATCHES = [
   "#10b981", // Emerald
@@ -775,10 +783,15 @@ function formatStorageBytes(bytes: number): string {
 export const VaultSettingsView: React.FC = () => {
   const {
     vaultStatus,
+    baseCurrency,
+    fxRates,
     accountSummaries,
     categories,
     entities,
     totalTransactionCount,
+    setBaseCurrency,
+    setFxRates,
+    resetFxRates,
     rekeyVault,
     run100kBenchmark,
     exportLedger,
@@ -793,6 +806,7 @@ export const VaultSettingsView: React.FC = () => {
   const [isBenchmarking, setIsBenchmarking] = useState(false);
   const [isResetModalOpen, setResetModalOpen] = useState(false);
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
+  const [editingRates, setEditingRates] = useState<Record<string, string>>({});
   const restoreInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -870,6 +884,178 @@ export const VaultSettingsView: React.FC = () => {
 
   return (
     <div className="p-3 md:p-6 h-full overflow-y-auto bg-neutral-950 text-neutral-100 grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+      {/* Surface 4: Vault Base Currency & Local FX Exchange Rates */}
+      <div className="col-span-1 md:col-span-2 p-4 md:p-5 rounded-xl bg-neutral-900/60 border border-neutral-800 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm">
+            <Coins className="w-4 h-4" />
+            <span>Vault Base Currency &amp; Local FX Exchange Rates</span>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              setEditingRates({});
+              await resetFxRates();
+            }}
+            className="px-2.5 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border border-neutral-700 text-xs flex items-center gap-1.5 transition-colors"
+            title="Reset exchange rates to default reference values"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-neutral-400" />
+            <span>Reset to Reference Rates</span>
+          </button>
+        </div>
+
+        <p className="text-xs text-neutral-400">
+          FinFolio operates 100% offline with zero external network or telemetry
+          dependencies. Exchange rates are stored in 64-bit integer basis points
+          (1 bp = 0.0001, 10,000 bp = 1.0000) with nearest-cent Banker&apos;s
+          rounding (round half to even).
+        </p>
+
+        {/* Base Currency Selector */}
+        <div className="p-3 rounded-lg bg-neutral-950 border border-neutral-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div>
+            <div className="font-semibold text-neutral-200">
+              Vault Base Reporting Currency
+            </div>
+            <div className="text-[11px] text-neutral-400">
+              All portfolio aggregates, multi-currency ledger conversions, and
+              context KPIs evaluate into this base unit.
+            </div>
+          </div>
+          <select
+            value={baseCurrency}
+            onChange={(e) => {
+              setEditingRates({});
+              void setBaseCurrency(e.target.value as CurrencyCode);
+            }}
+            className="px-3 py-1.5 rounded-lg bg-neutral-900 border border-neutral-700 text-neutral-100 font-medium focus:outline-none focus:border-emerald-500"
+          >
+            {Object.values(CURRENCIES).map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.code} — {c.name} ({c.symbol})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Interactive FX Rate Matrix Table */}
+        <div className="overflow-x-auto rounded-lg border border-neutral-800 bg-neutral-950">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-neutral-800 text-[11px] uppercase tracking-wider text-neutral-400 font-semibold bg-neutral-900/60">
+                <th className="py-2.5 px-3">Currency</th>
+                <th className="py-2.5 px-3">Pair Quote</th>
+                <th className="py-2.5 px-3">
+                  Rate ({baseCurrency} per 1 Foreign)
+                </th>
+                <th className="py-2.5 px-3">Basis Points</th>
+                <th className="py-2.5 px-3">Effective Conversion</th>
+                <th className="py-2.5 px-3 text-right">Inverse Spot Rate</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-900 font-mono text-[11px]">
+              {Object.values(CURRENCIES)
+                .filter((c) => c.code !== baseCurrency)
+                .map((cur) => {
+                  const currentBp =
+                    fxRates?.ratesBasisPoints?.[cur.code] ?? 10000;
+                  const decimalRate = (currentBp / 10000).toFixed(4);
+                  const inverseRate =
+                    currentBp > 0 ? (10000 / currentBp).toFixed(4) : "—";
+
+                  const inputValue =
+                    editingRates[cur.code] !== undefined
+                      ? editingRates[cur.code]
+                      : decimalRate;
+
+                  return (
+                    <tr
+                      key={cur.code}
+                      className="hover:bg-neutral-900/40 transition-colors"
+                    >
+                      <td className="py-2.5 px-3 font-sans">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded bg-neutral-800 text-neutral-200 flex items-center justify-center font-bold text-xs">
+                            {cur.symbol}
+                          </span>
+                          <div>
+                            <div className="font-semibold text-neutral-100">
+                              {cur.name}
+                            </div>
+                            <div className="text-[10px] text-neutral-500 font-mono">
+                              {cur.code}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3 text-neutral-300">
+                        <span className="px-2 py-0.5 rounded bg-neutral-800/80 border border-neutral-700/60 text-emerald-400">
+                          {cur.code} / {baseCurrency}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={inputValue}
+                            onChange={(e) => {
+                              const text = e.target.value;
+                              setEditingRates((prev) => ({
+                                ...prev,
+                                [cur.code]: text,
+                              }));
+                              const parsed = parseFloat(text.replace(",", "."));
+                              if (
+                                !isNaN(parsed) &&
+                                parsed > 0 &&
+                                parsed <= 100
+                              ) {
+                                const newBp = Math.round(parsed * 10000);
+                                void setFxRates({
+                                  ...fxRates,
+                                  baseCurrency,
+                                  ratesBasisPoints: {
+                                    ...fxRates.ratesBasisPoints,
+                                    [cur.code]: newBp,
+                                  },
+                                });
+                              }
+                            }}
+                            onBlur={() => {
+                              setEditingRates((prev) => {
+                                const copy = { ...prev };
+                                delete copy[cur.code];
+                                return copy;
+                              });
+                            }}
+                            className="w-24 px-2 py-1 rounded bg-neutral-900 border border-neutral-700 text-neutral-100 text-right font-mono focus:outline-none focus:border-emerald-500"
+                          />
+                          <span className="text-neutral-400">
+                            {baseCurrency}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span className="px-2 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-purple-300 text-[10px]">
+                          {currentBp.toLocaleString()} bp
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-neutral-300 font-sans">
+                        1 {cur.code} = {decimalRate} {baseCurrency}
+                      </td>
+                      <td className="py-2.5 px-3 text-right text-neutral-400 font-sans">
+                        1 {baseCurrency} ≈ {inverseRate} {cur.code}
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* Left: SQLCipher AES-256 & Argon2id Security */}
       <div className="p-4 md:p-5 rounded-xl bg-neutral-900/60 border border-neutral-800 space-y-4">
         <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm">

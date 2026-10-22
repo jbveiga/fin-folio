@@ -12,8 +12,9 @@ import {
   Wallet,
 } from "lucide-react";
 import { useFinFolioStore } from "../stores/useFinFolioStore";
-import { AccountType } from "../types";
-import { formatCents, parseCentsInput } from "../utils/money";
+import { AccountType, CurrencyCode } from "../types";
+import { formatCurrency, parseCentsInput } from "../utils/money";
+import { convertCurrency } from "../utils/fx";
 
 interface MobileAccountDrawerProps {
   isOpen: boolean;
@@ -25,6 +26,8 @@ export const MobileAccountDrawer: React.FC<MobileAccountDrawerProps> = ({
   onClose,
 }) => {
   const {
+    baseCurrency,
+    fxRates,
     accountSummaries,
     selectedAccountIds,
     toggleAccountSelection,
@@ -38,6 +41,7 @@ export const MobileAccountDrawer: React.FC<MobileAccountDrawerProps> = ({
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [accName, setAccName] = useState("");
   const [accType, setAccType] = useState<AccountType>("Checking");
+  const [accCurrency, setAccCurrency] = useState<CurrencyCode>("EUR");
   const [accAnchorStr, setAccAnchorStr] = useState("1000,00");
   const [accAnchorDate, setAccAnchorDate] = useState("2026-10-20");
   const [accIncludeTotals, setAccIncludeTotals] = useState(true);
@@ -46,11 +50,23 @@ export const MobileAccountDrawer: React.FC<MobileAccountDrawerProps> = ({
 
   const selectedBalanceCents = accountSummaries
     .filter((s) => selectedAccountIds.includes(s.account.id))
-    .reduce((acc, s) => acc + s.current_balance_cents, 0);
+    .reduce((acc, s) => {
+      const cur = s.account.currency || "EUR";
+      return (
+        acc +
+        convertCurrency(s.current_balance_cents, cur, baseCurrency, fxRates)
+      );
+    }, 0);
 
   const totalNetWorthCents = accountSummaries
     .filter((s) => s.account.is_included_in_totals)
-    .reduce((acc, s) => acc + s.current_balance_cents, 0);
+    .reduce((acc, s) => {
+      const cur = s.account.currency || "EUR";
+      return (
+        acc +
+        convertCurrency(s.current_balance_cents, cur, baseCurrency, fxRates)
+      );
+    }, 0);
 
   const allSelected =
     accountSummaries.length > 0 &&
@@ -63,6 +79,7 @@ export const MobileAccountDrawer: React.FC<MobileAccountDrawerProps> = ({
       id: editingAccountId || "",
       name: accName.trim(),
       account_type: accType,
+      currency: accCurrency,
       anchor_balance_cents: parseCentsInput(accAnchorStr),
       anchor_date: accAnchorDate,
       is_included_in_totals: accIncludeTotals,
@@ -107,7 +124,7 @@ export const MobileAccountDrawer: React.FC<MobileAccountDrawerProps> = ({
                 selectedBalanceCents >= 0 ? "text-emerald-400" : "text-rose-400"
               }`}
             >
-              {formatCents(selectedBalanceCents)}
+              {formatCurrency(selectedBalanceCents, baseCurrency)}
             </div>
           </div>
           <div className="text-right">
@@ -115,7 +132,7 @@ export const MobileAccountDrawer: React.FC<MobileAccountDrawerProps> = ({
               Total Net Worth
             </div>
             <div className="text-base font-bold font-mono tabular-nums text-neutral-100">
-              {formatCents(totalNetWorthCents)}
+              {formatCurrency(totalNetWorthCents, baseCurrency)}
             </div>
           </div>
         </div>
@@ -139,6 +156,17 @@ export const MobileAccountDrawer: React.FC<MobileAccountDrawerProps> = ({
             {accountSummaries.map((summary) => {
               const { account, current_balance_cents } = summary;
               const isChecked = selectedAccountIds.includes(account.id);
+              const accCurrency = account.currency || "EUR";
+              const isForeign = accCurrency !== baseCurrency;
+              const convertedBase =
+                summary.converted_balance_cents ??
+                convertCurrency(
+                  current_balance_cents,
+                  accCurrency,
+                  baseCurrency,
+                  fxRates
+                );
+
               return (
                 <div
                   key={account.id}
@@ -158,8 +186,13 @@ export const MobileAccountDrawer: React.FC<MobileAccountDrawerProps> = ({
                       )}
                     </span>
                     <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">
-                        {account.name}
+                      <div className="text-sm font-medium truncate flex items-center gap-1.5">
+                        <span className="truncate">{account.name}</span>
+                        {isForeign && (
+                          <span className="px-1 py-0.2 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[9px] font-mono font-semibold shrink-0">
+                            {accCurrency}
+                          </span>
+                        )}
                       </div>
                       <div className="text-[11px] text-neutral-400 flex items-center gap-1.5">
                         <span className="px-1.5 py-0.5 rounded bg-neutral-900 text-[10px] font-mono">
@@ -179,15 +212,26 @@ export const MobileAccountDrawer: React.FC<MobileAccountDrawerProps> = ({
                             : "text-rose-400"
                         }`}
                       >
-                        {formatCents(current_balance_cents)}
+                        {formatCurrency(current_balance_cents, accCurrency)}
                       </div>
+                      {isForeign && (
+                        <div
+                          className="font-mono text-[10px] text-neutral-400 tabular-nums leading-none mt-0.5"
+                          title={`Converted to ${baseCurrency} at 1 ${accCurrency} = ${(
+                            (fxRates.ratesBasisPoints[accCurrency] || 10000) /
+                            10000
+                          ).toFixed(4)} ${baseCurrency}`}
+                        >
+                          ≈ {formatCurrency(convertedBase, baseCurrency)}
+                        </div>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           void selectSingleAccount(account.id);
                         }}
-                        className="text-[10px] text-neutral-400 underline"
+                        className="text-[10px] text-neutral-400 underline mt-0.5"
                       >
                         Solo
                       </button>
@@ -199,6 +243,7 @@ export const MobileAccountDrawer: React.FC<MobileAccountDrawerProps> = ({
                         setEditingAccountId(account.id);
                         setAccName(account.name);
                         setAccType(account.account_type);
+                        setAccCurrency(account.currency || "EUR");
                         setAccAnchorStr(
                           (account.anchor_balance_cents / 100)
                             .toFixed(2)
@@ -226,6 +271,7 @@ export const MobileAccountDrawer: React.FC<MobileAccountDrawerProps> = ({
               onClick={() => {
                 setEditingAccountId(null);
                 setAccName("");
+                setAccCurrency("EUR");
                 setAccAnchorStr("1000,00");
                 setIsEditingOrAdding(true);
               }}
@@ -264,17 +310,30 @@ export const MobileAccountDrawer: React.FC<MobileAccountDrawerProps> = ({
                 className="w-full px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-700 text-white text-sm"
                 autoFocus
               />
-              <select
-                value={accType}
-                onChange={(e) => setAccType(e.target.value as AccountType)}
-                className="w-full px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-700 text-white text-sm"
-              >
-                <option value="Checking">Checking</option>
-                <option value="Savings">Savings</option>
-                <option value="CreditCard">Credit Card</option>
-                <option value="Cash">Cash</option>
-                <option value="MealCard">Meal Card</option>
-              </select>
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={accType}
+                  onChange={(e) => setAccType(e.target.value as AccountType)}
+                  className="w-full px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-700 text-white text-sm"
+                >
+                  <option value="Checking">Checking</option>
+                  <option value="Savings">Savings</option>
+                  <option value="CreditCard">Credit Card</option>
+                  <option value="Cash">Cash</option>
+                  <option value="MealCard">Meal Card</option>
+                </select>
+                <select
+                  value={accCurrency}
+                  onChange={(e) => setAccCurrency(e.target.value as CurrencyCode)}
+                  className="w-full px-3 py-2 rounded-lg bg-neutral-900 border border-neutral-700 text-white text-sm font-mono"
+                  title="Currency (ISO-4217)"
+                >
+                  <option value="EUR">EUR (€)</option>
+                  <option value="USD">USD ($)</option>
+                  <option value="GBP">GBP (£)</option>
+                  <option value="CHF">CHF (CHF)</option>
+                </select>
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-[10px] text-neutral-400">

@@ -2,13 +2,23 @@ import React, { lazy, Suspense, useEffect, useState } from "react";
 import { LeftNavigationRail } from "./components/LeftNavigationRail";
 import { TopContextHeader } from "./components/TopContextHeader";
 import { VirtualizedLedgerView } from "./components/VirtualizedLedgerView";
-import { CommandPaletteModal } from "./components/CommandPaletteModal";
 import { MobileBottomBar } from "./components/MobileBottomBar";
 import { MobileAccountDrawer } from "./components/MobileAccountDrawer";
-import { MobileQuickAddModal } from "./components/MobileQuickAddModal";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useFinFolioStore } from "./stores/useFinFolioStore";
+
+const MobileQuickAddModal = lazy(() =>
+  import("./components/MobileQuickAddModal").then((m) => ({
+    default: m.MobileQuickAddModal,
+  }))
+);
+
+const CommandPaletteModal = lazy(() =>
+  import("./components/CommandPaletteModal").then((m) => ({
+    default: m.CommandPaletteModal,
+  }))
+);
 
 // Dynamically chunked secondary views for fast initial bundle paint
 const AnalyticsView = lazy(() =>
@@ -122,12 +132,18 @@ export function App() {
         onClose={() => setMobileAccountDrawerOpen(false)}
       />
 
-      <MobileQuickAddModal
-        isOpen={isMobileQuickAddOpen}
-        onClose={() => setMobileQuickAddOpen(false)}
-      />
+      {isMobileQuickAddOpen && (
+        <Suspense fallback={null}>
+          <MobileQuickAddModal
+            isOpen={isMobileQuickAddOpen}
+            onClose={() => setMobileQuickAddOpen(false)}
+          />
+        </Suspense>
+      )}
 
-      <CommandPaletteModal />
+      <Suspense fallback={null}>
+        <CommandPaletteModal />
+      </Suspense>
     </div>
   );
 }

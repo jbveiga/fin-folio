@@ -22,10 +22,23 @@ import {
   Undo2,
 } from "lucide-react";
 import { useFinFolioStore } from "../stores/useFinFolioStore";
-import { SaveSplitInput, SaveTransactionInput, TransactionWithSplits } from "../types";
-import { formatCents, parseCentsInput } from "../utils/money";
-import { LinkReimbursementModal } from "./LinkReimbursementModal";
-import { LinkTransferModal } from "./LinkTransferModal";
+import {
+  CurrencyCode,
+  SaveSplitInput,
+  SaveTransactionInput,
+  TransactionWithSplits,
+} from "../types";
+import { formatCents, formatCurrency, parseCentsInput } from "../utils/money";
+import { convertCurrency } from "../utils/fx";
+
+const LinkTransferModal = React.lazy(() =>
+  import("./LinkTransferModal").then((m) => ({ default: m.LinkTransferModal }))
+);
+const LinkReimbursementModal = React.lazy(() =>
+  import("./LinkReimbursementModal").then((m) => ({
+    default: m.LinkReimbursementModal,
+  }))
+);
 
 function formatCentsToEditableInput(cents: number): string {
   const intVal = BigInt(Math.trunc(cents || 0));
@@ -38,6 +51,8 @@ function formatCentsToEditableInput(cents: number): string {
 
 export const VirtualizedLedgerView: React.FC = () => {
   const {
+    baseCurrency,
+    fxRates,
     transactions,
     totalTransactionCount,
     uncategorizedCount,
@@ -170,7 +185,7 @@ export const VirtualizedLedgerView: React.FC = () => {
     }
   };
 
-  // Virtualizer setup (36px compact row on desktop, 58px 2-line touch card on mobile, 230px when split drawer is expanded)
+  // Virtualizer setup (40px row on desktop, 62px 2-line touch card on mobile, 230px when split drawer is expanded)
   const rowVirtualizer = useVirtualizer({
     count: transactions.length,
     getScrollElement: () => parentRef.current,
@@ -181,7 +196,7 @@ export const VirtualizedLedgerView: React.FC = () => {
       if (txId && expandedSplitTxIds.includes(txId)) {
         return isMobile ? 280 : 230;
       }
-      return isMobile ? 58 : 36;
+      return isMobile ? 62 : 40;
     },
     overscan: 12,
   });
@@ -700,6 +715,22 @@ export const VirtualizedLedgerView: React.FC = () => {
                           .includes(r.name.trim().toLowerCase())))
                 );
 
+              const txCurrency: CurrencyCode =
+                (account?.currency as CurrencyCode) || "EUR";
+              const isForeign = txCurrency !== baseCurrency;
+              const convertedBaseCents = isForeign
+                ? convertCurrency(
+                    tx.total_amount_cents,
+                    txCurrency,
+                    baseCurrency,
+                    fxRates
+                  )
+                : tx.total_amount_cents;
+              const rate = isForeign
+                ? fxRates?.ratesBasisPoints?.[txCurrency] ?? 10000
+                : 10000;
+              const rateFormatted = (rate / 10000).toFixed(4);
+
               return (
                 <div
                   key={tx.id}
@@ -780,11 +811,22 @@ export const VirtualizedLedgerView: React.FC = () => {
                                   : "text-rose-400"
                               }`}
                             >
-                              {formatCents(tx.total_amount_cents, true)}
+                              {formatCurrency(tx.total_amount_cents, txCurrency, true)}
                             </div>
+                            {isForeign && (
+                              <div
+                                className="font-mono text-[10px] text-neutral-400 font-normal flex items-center justify-end gap-1 leading-none mt-0.5"
+                                title={`Rate: 1 ${txCurrency} = ${rateFormatted} ${baseCurrency} (Basis: ${rate.toLocaleString()} bp)`}
+                              >
+                                <span>≈ {formatCurrency(convertedBaseCents, baseCurrency)}</span>
+                                <span className="text-[9px] px-1 rounded bg-neutral-800 text-neutral-400 border border-neutral-700/60 font-mono">
+                                  FX
+                                </span>
+                              </div>
+                            )}
                             {hasReimbursements && reimbursementSummary && (
                               <div className="text-[10px] font-mono text-emerald-400 font-normal">
-                                Net: {formatCents(reimbursementSummary.netAmountCents, true)}
+                                Net: {formatCurrency(reimbursementSummary.netAmountCents, txCurrency, true)}
                               </div>
                             )}
                           </div>
@@ -920,7 +962,7 @@ export const VirtualizedLedgerView: React.FC = () => {
                     {/* DESKTOP 9-COLUMN GRID (>= 768px)                      */}
                     {/* ===================================================== */}
                     <div
-                      className={`hidden md:grid grid-cols-[32px_36px_96px_120px_160px_210px_1fr_130px_150px] items-center px-4 h-9 text-[13px] ${
+                      className={`hidden md:grid grid-cols-[32px_36px_96px_120px_160px_210px_1fr_130px_150px] items-center px-4 min-h-[40px] py-1 text-[13px] ${
                         selectedLedgerTxIds.includes(tx.id)
                           ? "bg-emerald-950/25"
                           : ""
@@ -1112,14 +1154,25 @@ export const VirtualizedLedgerView: React.FC = () => {
                               : "text-rose-400"
                           }`}
                         >
-                          {formatCents(tx.total_amount_cents, true)}
+                          {formatCurrency(tx.total_amount_cents, txCurrency, true)}
                         </div>
+                        {isForeign && (
+                          <div
+                            className="font-mono text-[10px] text-neutral-400 font-normal flex items-center justify-end gap-1 leading-none mt-0.5"
+                            title={`Rate: 1 ${txCurrency} = ${rateFormatted} ${baseCurrency} (Basis: ${rate.toLocaleString()} bp)`}
+                          >
+                            <span>≈ {formatCurrency(convertedBaseCents, baseCurrency)}</span>
+                            <span className="text-[9px] px-1 rounded bg-neutral-800 text-neutral-400 border border-neutral-700/60 font-mono">
+                              FX
+                            </span>
+                          </div>
+                        )}
                         {hasReimbursements && reimbursementSummary && (
                           <div
                             className="text-[10px] font-mono text-emerald-400 font-normal text-right leading-none mt-0.5"
-                            title={`Reimbursed: +${formatCents(reimbursementSummary.totalReimbursedCents)} across ${reimbursementSummary.reimbursementCount} payment(s)`}
+                            title={`Reimbursed: +${formatCurrency(reimbursementSummary.totalReimbursedCents, txCurrency)} across ${reimbursementSummary.reimbursementCount} payment(s)`}
                           >
-                            Net: {formatCents(reimbursementSummary.netAmountCents, true)}
+                            Net: {formatCurrency(reimbursementSummary.netAmountCents, txCurrency, true)}
                           </div>
                         )}
                       </div>
@@ -1344,18 +1397,26 @@ export const VirtualizedLedgerView: React.FC = () => {
       )}
 
       {/* Task: Link Transfer Pair Modal (Milestone 2.2) */}
-      <LinkTransferModal
-        isOpen={Boolean(transferModalTx)}
-        sourceTransaction={transferModalTx}
-        onClose={() => setTransferModalTx(null)}
-      />
+      {transferModalTx && (
+        <React.Suspense fallback={null}>
+          <LinkTransferModal
+            isOpen={Boolean(transferModalTx)}
+            sourceTransaction={transferModalTx}
+            onClose={() => setTransferModalTx(null)}
+          />
+        </React.Suspense>
+      )}
 
       {/* Task: Link Reimbursement Modal (MB WAY Dinner) (Milestone 2.2) */}
-      <LinkReimbursementModal
-        isOpen={Boolean(reimbursementModalTx)}
-        childTransaction={reimbursementModalTx}
-        onClose={() => setReimbursementModalTx(null)}
-      />
+      {reimbursementModalTx && (
+        <React.Suspense fallback={null}>
+          <LinkReimbursementModal
+            isOpen={Boolean(reimbursementModalTx)}
+            childTransaction={reimbursementModalTx}
+            onClose={() => setReimbursementModalTx(null)}
+          />
+        </React.Suspense>
+      )}
     </div>
   );
 };
@@ -1465,7 +1526,15 @@ const InlineRowEditForm: React.FC<InlineRowEditFormProps> = ({
       splits: updatedSplits,
     });
 
-    setStatusBanner(`✓ Updated transaction (${formatCents(newAmountCents, true)})`);
+    const targetAcc = accountSummaries.find(
+      (s) => s.account.id === accountId
+    )?.account;
+    const accCurrency: CurrencyCode =
+      (targetAcc?.currency as CurrencyCode) || "EUR";
+
+    setStatusBanner(
+      `✓ Updated transaction (${formatCurrency(newAmountCents, accCurrency, true)})`
+    );
   };
 
   return (
@@ -1713,6 +1782,12 @@ const InlineSplitEditor: React.FC<InlineSplitEditorProps> = ({
     setAmountStrings(amountStrings.filter((_, i) => i !== idx));
   };
 
+  const targetAcc = accountSummaries.find(
+    (s) => s.account.id === item.transaction.account_id
+  )?.account;
+  const splitCurrency: CurrencyCode =
+    (targetAcc?.currency as CurrencyCode) || "EUR";
+
   const handleSaveSplits = async () => {
     if (!isBalanced) return;
     await saveTransaction({
@@ -1728,7 +1803,7 @@ const InlineSplitEditor: React.FC<InlineSplitEditorProps> = ({
       splits: draftSplits,
     });
     setStatusBanner(
-      `✓ Committed ${draftSplits.length} balanced splits for ${formatCents(parentCents)}`
+      `✓ Committed ${draftSplits.length} balanced splits for ${formatCurrency(parentCents, splitCurrency)}`
     );
     onClose();
   };
@@ -1751,16 +1826,16 @@ const InlineSplitEditor: React.FC<InlineSplitEditorProps> = ({
         <div className="flex flex-wrap items-center gap-2 md:gap-3">
           <span className="font-semibold text-purple-300 flex items-center gap-1.5">
             <GitBranch className="w-3.5 h-3.5" />
-            Split Allocation (Parent Amount: {formatCents(parentCents)})
+            Split Allocation (Parent Amount: {formatCurrency(parentCents, splitCurrency)})
           </span>
           {isBalanced ? (
             <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-mono flex items-center gap-1">
-              <Check className="w-3 h-3" />✓ Remainder: 0,00 € [Balanced]
+              <Check className="w-3 h-3" />✓ Remainder: {formatCurrency(0, splitCurrency)} [Balanced]
             </span>
           ) : (
             <span className="px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-300 font-mono flex items-center gap-1">
               <AlertTriangle className="w-3 h-3" />
-              Remaining to allocate: {formatCents(remainderCents)}
+              Remaining to allocate: {formatCurrency(remainderCents, splitCurrency)}
             </span>
           )}
         </div>

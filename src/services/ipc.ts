@@ -5,7 +5,9 @@ import {
   BankProfile,
   BankProfilePreset,
   Category,
+  CurrencyCode,
   Entity,
+  FxRateConfig,
   ImportRule,
   LedgerQueryResultDto,
   ParseStatementResultDto,
@@ -16,6 +18,7 @@ import {
   VaultStatus,
 } from "../types";
 import { parseCentsInput } from "../utils/money";
+import { DEFAULT_FX_RATES, convertCurrency } from "../utils/fx";
 import { indexedDbVault, StorageInfo } from "./indexedDbVault";
 
 export const BUILTIN_BANK_PRESETS: BankProfilePreset[] = [
@@ -131,6 +134,7 @@ const defaultFallbackDb: FallbackDatabase = {
     schema_version: 1,
     base_currency: "EUR",
     cycle_start_day: 1,
+    fx_rates: DEFAULT_FX_RATES,
   },
   accounts: [
     {
@@ -140,6 +144,7 @@ const defaultFallbackDb: FallbackDatabase = {
       anchor_balance_cents: 342_010,
       anchor_date: "2026-10-01",
       is_included_in_totals: true,
+      currency: "EUR",
     },
     {
       id: "acc_bcp",
@@ -148,6 +153,7 @@ const defaultFallbackDb: FallbackDatabase = {
       anchor_balance_cents: 183_070,
       anchor_date: "2026-10-01",
       is_included_in_totals: true,
+      currency: "EUR",
     },
     {
       id: "acc_savings",
@@ -156,14 +162,16 @@ const defaultFallbackDb: FallbackDatabase = {
       anchor_balance_cents: 850_000,
       anchor_date: "2026-10-01",
       is_included_in_totals: true,
+      currency: "EUR",
     },
     {
       id: "acc_revolut",
-      name: "Revolut",
+      name: "Revolut (USD)",
       account_type: "Checking",
-      anchor_balance_cents: 25_000,
+      anchor_balance_cents: 125_000,
       anchor_date: "2026-10-01",
       is_included_in_totals: true,
+      currency: "USD",
     },
     {
       id: "acc_meal",
@@ -172,6 +180,7 @@ const defaultFallbackDb: FallbackDatabase = {
       anchor_balance_cents: 16_800,
       anchor_date: "2026-10-01",
       is_included_in_totals: true,
+      currency: "EUR",
     },
   ],
   categories: [
@@ -675,6 +684,19 @@ function normalizeParsedFallbackDb(parsed: FallbackDatabase): FallbackDatabase {
   ) {
     parsed.vaultStatus.path = "~/Documents/finfolio_vault.finfolio";
   }
+  if (!parsed.vaultStatus) {
+    parsed.vaultStatus = cloneDefaultFallbackDb().vaultStatus;
+  }
+  if (!parsed.vaultStatus.base_currency) {
+    parsed.vaultStatus.base_currency = "EUR";
+  }
+  if (!parsed.vaultStatus.fx_rates) {
+    parsed.vaultStatus.fx_rates = DEFAULT_FX_RATES;
+  }
+  parsed.accounts = (parsed.accounts || []).map((a) => ({
+    ...a,
+    currency: a.currency || (a.id === "acc_revolut" ? "USD" : "EUR"),
+  }));
   const recurringSeedIds = new Set(["tx_1", "tx_6", "tx_7"]);
   parsed.transactions = parsed.transactions.map((item) => ({
     ...item,
@@ -762,6 +784,9 @@ async function ensureFallbackDbHydrated(): Promise<void> {
 }
 
 function computeFallbackAccountSummaries(): AccountBalanceSummary[] {
+  const baseCurrency = (fallbackDb.vaultStatus?.base_currency as CurrencyCode) || "EUR";
+  const fxRates = fallbackDb.vaultStatus?.fx_rates || DEFAULT_FX_RATES;
+
   return fallbackDb.accounts.map((acc) => {
     let postDelta = 0;
     let preDelta = 0;
@@ -773,12 +798,17 @@ function computeFallbackAccountSummaries(): AccountBalanceSummary[] {
         preDelta += item.transaction.total_amount_cents;
       }
     }
+    const currentBalance = acc.anchor_balance_cents + postDelta;
+    const accCurrency = acc.currency || "EUR";
+    const convertedBalance = convertCurrency(currentBalance, accCurrency, baseCurrency, fxRates);
+
     return {
       account: acc,
-      current_balance_cents: acc.anchor_balance_cents + postDelta,
+      current_balance_cents: currentBalance,
       anchor_balance_cents: acc.anchor_balance_cents,
       post_anchor_delta_cents: postDelta,
       pre_anchor_delta_cents: preDelta,
+      converted_balance_cents: convertedBalance,
     };
   });
 }
@@ -828,6 +858,37 @@ export const ipc = {
     }
     await ensureFallbackDbHydrated();
     return fallbackDb.vaultStatus;
+  },
+
+  async updateVaultBaseCurrency(
+    baseCurrency: CurrencyCode
+  ): Promise<VaultStatus> {
+    await ensureFallbackDbHydrated();
+    fallbackDb.vaultStatus = {
+      ...fallbackDb.vaultStatus,
+      base_currency: baseCurrency,
+      fx_rates: {
+        ...(fallbackDb.vaultStatus.fx_rates || DEFAULT_FX_RATES),
+        baseCurrency,
+      },
+    };
+    persistFallbackDb();
+    return fallbackDb.vaultStatus;
+  },
+
+  async getFxRates(): Promise<FxRateConfig> {
+    await ensureFallbackDbHydrated();
+    return fallbackDb.vaultStatus?.fx_rates || DEFAULT_FX_RATES;
+  },
+
+  async updateFxRates(fxRates: FxRateConfig): Promise<FxRateConfig> {
+    await ensureFallbackDbHydrated();
+    fallbackDb.vaultStatus = {
+      ...fallbackDb.vaultStatus,
+      fx_rates: fxRates,
+    };
+    persistFallbackDb();
+    return fxRates;
   },
 
   async rekeyVault(newPassphrase: string | null): Promise<VaultStatus> {
@@ -1292,9 +1353,16 @@ export const ipc = {
         b.transaction.date_posted.localeCompare(a.transaction.date_posted)
       );
 
+    const baseCurrency = (fallbackDb.vaultStatus?.base_currency as CurrencyCode) || "EUR";
+    const fxRates = fallbackDb.vaultStatus?.fx_rates || DEFAULT_FX_RATES;
+    const accMap = new Map(fallbackDb.accounts.map((a) => [a.id, a]));
+
     let inflow = 0;
     let outflow = 0;
     for (const item of filtered) {
+      const acc = accMap.get(item.transaction.account_id);
+      const accCurrency = acc?.currency || "EUR";
+
       for (const sp of item.splits) {
         if (
           sp.transfer_peer_account_id ||
@@ -1302,18 +1370,24 @@ export const ipc = {
         ) {
           continue;
         }
+        const splitAmountInBase = convertCurrency(
+          sp.split_amount_cents,
+          accCurrency,
+          baseCurrency,
+          fxRates
+        );
         const cat = sp.category_id ? catMap.get(sp.category_id) : undefined;
         if (cat?.direction === "Expense") {
-          outflow += sp.split_amount_cents;
+          outflow += splitAmountInBase;
         } else if (cat?.direction === "Income") {
-          inflow += sp.split_amount_cents;
+          inflow += splitAmountInBase;
         } else if (item.transaction.reimbursement_parent_id) {
           // Linked incoming reimbursement nets down expense outflow rather than inflating income
-          outflow += sp.split_amount_cents;
-        } else if (sp.split_amount_cents > 0) {
-          inflow += sp.split_amount_cents;
+          outflow += splitAmountInBase;
+        } else if (splitAmountInBase > 0) {
+          inflow += splitAmountInBase;
         } else {
-          outflow += sp.split_amount_cents;
+          outflow += splitAmountInBase;
         }
       }
     }

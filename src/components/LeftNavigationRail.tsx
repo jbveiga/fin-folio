@@ -21,14 +21,17 @@ import {
   Pencil,
 } from "lucide-react";
 import { useFinFolioStore } from "../stores/useFinFolioStore";
-import { AccountType, ActiveView } from "../types";
-import { formatCents, parseCentsInput } from "../utils/money";
+import { AccountType, ActiveView, CurrencyCode } from "../types";
+import { formatCurrency, parseCentsInput } from "../utils/money";
+import { convertCurrency } from "../utils/fx";
 
 export const LeftNavigationRail: React.FC = () => {
   const {
     activeView,
     isSidebarCollapsed,
     vaultStatus,
+    baseCurrency,
+    fxRates,
     accountSummaries,
     selectedAccountIds,
     stagingResult,
@@ -46,6 +49,7 @@ export const LeftNavigationRail: React.FC = () => {
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [newAccName, setNewAccName] = useState("");
   const [newAccType, setNewAccType] = useState<AccountType>("Checking");
+  const [newAccCurrency, setNewAccCurrency] = useState<CurrencyCode>("EUR");
   const [newAccAnchorStr, setNewAccAnchorStr] = useState("1000,00");
   const [newAccAnchorDate, setNewAccAnchorDate] = useState("2026-10-20");
   const [newAccIncludeTotals, setNewAccIncludeTotals] = useState(true);
@@ -112,6 +116,7 @@ export const LeftNavigationRail: React.FC = () => {
       id: editingAccountId || "",
       name: newAccName.trim(),
       account_type: newAccType,
+      currency: newAccCurrency,
       anchor_balance_cents: parseCentsInput(newAccAnchorStr),
       anchor_date: newAccAnchorDate,
       is_included_in_totals: newAccIncludeTotals,
@@ -267,6 +272,17 @@ export const LeftNavigationRail: React.FC = () => {
           {accountSummaries.map((summary) => {
             const { account, current_balance_cents } = summary;
             const isChecked = selectedAccountIds.includes(account.id);
+            const accCurrency = account.currency || "EUR";
+            const isNonBase = accCurrency !== baseCurrency;
+            const convertedBalance =
+              summary.converted_balance_cents ??
+              convertCurrency(
+                current_balance_cents,
+                accCurrency,
+                baseCurrency,
+                fxRates
+              );
+
             return (
               <div
                 key={account.id}
@@ -290,13 +306,21 @@ export const LeftNavigationRail: React.FC = () => {
                     )}
                   </span>
                   <div className="truncate">
-                    <div className="font-medium truncate">{account.name}</div>
+                    <div className="flex items-center gap-1.5 truncate">
+                      <span className="font-medium truncate">{account.name}</span>
+                      {isNonBase && (
+                        <span className="px-1 py-0.2 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[9px] font-mono font-semibold shrink-0">
+                          {accCurrency}
+                        </span>
+                      )}
+                    </div>
                     <div
                       onClick={(e) => {
                         e.stopPropagation();
                         setEditingAccountId(account.id);
                         setNewAccName(account.name);
                         setNewAccType(account.account_type);
+                        setNewAccCurrency(account.currency || "EUR");
                         setNewAccAnchorStr(
                           (account.anchor_balance_cents / 100)
                             .toFixed(2)
@@ -313,14 +337,27 @@ export const LeftNavigationRail: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                  <div
-                    className={`font-mono text-[11px] tabular-nums ${
-                      current_balance_cents >= 0
-                        ? "text-emerald-400"
-                        : "text-rose-400"
-                    }`}
-                  >
-                    {formatCents(current_balance_cents)}
+                  <div className="text-right">
+                    <div
+                      className={`font-mono text-[11px] tabular-nums font-semibold ${
+                        current_balance_cents >= 0
+                          ? "text-emerald-400"
+                          : "text-rose-400"
+                      }`}
+                    >
+                      {formatCurrency(current_balance_cents, accCurrency)}
+                    </div>
+                    {isNonBase && (
+                      <div
+                        className="font-mono text-[9px] text-neutral-400 tabular-nums leading-none mt-0.5"
+                        title={`Converted to ${baseCurrency} at 1 ${accCurrency} = ${(
+                          (fxRates.ratesBasisPoints[accCurrency] || 10000) /
+                          10000
+                        ).toFixed(4)} ${baseCurrency}`}
+                      >
+                        ≈ {formatCurrency(convertedBalance, baseCurrency)}
+                      </div>
+                    )}
                   </div>
                   <button
                     type="button"
@@ -329,6 +366,7 @@ export const LeftNavigationRail: React.FC = () => {
                       setEditingAccountId(account.id);
                       setNewAccName(account.name);
                       setNewAccType(account.account_type);
+                      setNewAccCurrency(account.currency || "EUR");
                       setNewAccAnchorStr(
                         (account.anchor_balance_cents / 100)
                           .toFixed(2)
@@ -354,6 +392,7 @@ export const LeftNavigationRail: React.FC = () => {
             onClick={() => {
               setEditingAccountId(null);
               setNewAccName("");
+              setNewAccCurrency("EUR");
               setNewAccAnchorStr("1000,00");
               setIsAddingAccount(true);
             }}
@@ -380,17 +419,35 @@ export const LeftNavigationRail: React.FC = () => {
               className="w-full px-2 py-1 rounded bg-neutral-900 border border-neutral-700 text-white focus:outline-none focus:border-emerald-500"
               autoFocus
             />
-            <select
-              value={newAccType}
-              onChange={(e) => setNewAccType(e.target.value as AccountType)}
-              className="w-full px-2 py-1 rounded bg-neutral-900 border border-neutral-700 text-white"
-            >
-              <option value="Checking">Checking</option>
-              <option value="Savings">Savings</option>
-              <option value="CreditCard">Credit Card</option>
-              <option value="Cash">Cash</option>
-              <option value="MealCard">Meal Card</option>
-            </select>
+            <div className="grid grid-cols-2 gap-1.5">
+              <select
+                value={newAccType}
+                onChange={(e) => setNewAccType(e.target.value as AccountType)}
+                className="w-full px-2 py-1 rounded bg-neutral-900 border border-neutral-700 text-white"
+              >
+                <option value="Checking">Checking</option>
+                <option value="Savings">Savings</option>
+                <option value="CreditCard">Credit Card</option>
+                <option value="Cash">Cash</option>
+                <option value="MealCard">Meal Card</option>
+              </select>
+              <select
+                value={newAccCurrency}
+                onChange={(e) =>
+                  setNewAccCurrency(e.target.value as CurrencyCode)
+                }
+                className="w-full px-2 py-1 rounded bg-neutral-900 border border-neutral-700 text-white font-mono text-[11px]"
+                title="Account Currency (ISO-4217)"
+              >
+                <option value="EUR">EUR — Euro (€)</option>
+                <option value="USD">USD — Dollar ($)</option>
+                <option value="GBP">GBP — Pound (£)</option>
+                <option value="CHF">CHF — Franc (CHF)</option>
+              </select>
+            </div>
+            <div className="text-[10px] text-neutral-500 leading-tight">
+              All transactions in this account will be recorded in this native currency.
+            </div>
             <div className="grid grid-cols-2 gap-1.5">
               <div>
                 <label className="text-[10px] text-neutral-400">

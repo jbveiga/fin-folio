@@ -108,14 +108,31 @@ export interface RecurringSummaryKpis {
   pendingCount: number;
 }
 
+export type CurrencyCode = "EUR" | "USD" | "GBP" | "CHF";
+
+export interface CurrencyConfig {
+  code: CurrencyCode;
+  symbol: string;
+  name: string;
+  decimalSeparator: "," | ".";
+  thousandsSeparator: "." | "," | "'";
+  symbolPosition: "before" | "after";
+}
+
+export interface FxRateConfig {
+  baseCurrency: CurrencyCode;
+  ratesBasisPoints: Record<CurrencyCode, number>;
+}
+
 export interface VaultStatus {
   is_open: boolean;
   path: string | null;
   is_encrypted: boolean;
   is_memory_locked: boolean;
   schema_version: number;
-  base_currency: string;
+  base_currency: CurrencyCode;
   cycle_start_day: number;
+  fx_rates?: FxRateConfig;
 }
 
 export type AccountType =
@@ -132,6 +149,7 @@ export interface Account {
   anchor_balance_cents: Cents;
   anchor_date: string; // YYYY-MM-DD
   is_included_in_totals: boolean;
+  currency?: CurrencyCode;
 }
 
 export interface AccountBalanceSummary {
@@ -140,6 +158,7 @@ export interface AccountBalanceSummary {
   anchor_balance_cents: Cents;
   post_anchor_delta_cents: Cents;
   pre_anchor_delta_cents: Cents;
+  converted_balance_cents?: Cents;
 }
 
 export type CategoryDirection = "Income" | "Expense";
